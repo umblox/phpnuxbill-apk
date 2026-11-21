@@ -1,4 +1,0 @@
--keepattributes *Annotation*,InnerClasses,Signature,EnclosingMethod
--keep class id.biz.arneta.admin.** { *; }
--dontwarn javax.naming.**
--dontwarn org.slf4j.**
