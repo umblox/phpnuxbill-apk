@@ -8,6 +8,8 @@ import com.phpnuxbill.mobile.core.network.NetworkGateway
 import com.phpnuxbill.mobile.core.network.OkHttpMobileApiClient
 import com.phpnuxbill.mobile.feature.auth.data.AuthRepository
 import com.phpnuxbill.mobile.feature.auth.data.RemoteAuthRepository
+import com.phpnuxbill.mobile.feature.customers.data.CustomerRepository
+import com.phpnuxbill.mobile.feature.customers.data.RemoteCustomerRepository
 import com.phpnuxbill.mobile.feature.dashboard.data.DashboardRepository
 import com.phpnuxbill.mobile.feature.dashboard.data.RemoteDashboardRepository
 
@@ -20,6 +22,7 @@ interface AppContainer {
     val networkGateway: NetworkGateway
     val authRepository: AuthRepository
     val dashboardRepository: DashboardRepository
+    val customerRepository: CustomerRepository
 }
 
 class DefaultAppContainer(context: Context) : AppContainer {
@@ -48,6 +51,12 @@ class DefaultAppContainer(context: Context) : AppContainer {
         RemoteDashboardRepository(
             networkGateway = networkGateway,
             sessionStorage = sessionStorage
+        )
+    }
+
+    override val customerRepository: CustomerRepository by lazy {
+        RemoteCustomerRepository(
+            networkGateway = networkGateway
         )
     }
 }
