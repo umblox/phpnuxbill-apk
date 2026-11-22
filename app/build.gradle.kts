@@ -8,7 +8,7 @@ plugins {
 }
 
 // =========================================================================
-// 1. AUTO-INCREMENT VERSI SAAT BUILD RELEASE
+// AUTO-INCREMENT VERSI OTOMATIS SAAT BUILD RELEASE
 // =========================================================================
 val versionPropsFile = file("version.properties")
 val versionProps = Properties()
@@ -41,39 +41,6 @@ if (isReleaseBuild) {
 val appVersionName = "$vMajor.$vMinor.$vPatch"
 val appVersionCode = vCode
 
-// =========================================================================
-// 2. KEYSTORE PERMANEN (AUTO-GENERATE JIKA BELUM ADA)
-// =========================================================================
-val keystoreDir = file("keystore")
-val releaseKeystoreFile = File(keystoreDir, "phpnuxbill_release.jks")
-val ksStorePass = "phpnuxbill_sign_2026"
-val ksAlias = "phpnuxbill_key"
-val ksKeyPass = "phpnuxbill_sign_2026"
-
-if (!releaseKeystoreFile.exists()) {
-    keystoreDir.mkdirs()
-    val javaHome = System.getProperty("java.home")
-    val keytoolBin = File(javaHome, "bin/keytool").let {
-        if (it.exists()) it.absolutePath else "keytool"
-    }
-    val proc = ProcessBuilder(
-        keytoolBin,
-        "-genkeypair",
-        "-v",
-        "-keystore", releaseKeystoreFile.absolutePath,
-        "-storetype", "JKS",
-        "-keyalg", "RSA",
-        "-keysize", "2048",
-        "-validity", "36500",
-        "-alias", ksAlias,
-        "-storepass", ksStorePass,
-        "-keypass", ksKeyPass,
-        "-dname", "CN=PHPNuxBill Mobile, OU=ISP Billing, O=PHPNuxBill, L=Jakarta, ST=DKI Jakarta, C=ID"
-    ).redirectErrorStream(true).start()
-    proc.waitFor()
-    println("==> Permanent Release Keystore Created: ${releaseKeystoreFile.absolutePath}")
-}
-
 android {
     namespace = "com.phpnuxbill.mobile"
     compileSdk = 37
@@ -91,18 +58,6 @@ android {
         }
     }
 
-    signingConfigs {
-        create("release") {
-            storeFile = releaseKeystoreFile
-            storePassword = ksStorePass
-            keyAlias = ksAlias
-            keyPassword = ksKeyPass
-            enableV1Signing = true
-            enableV2Signing = true
-            enableV3Signing = true
-        }
-    }
-
     buildTypes {
         debug {
             isMinifyEnabled = false
@@ -112,7 +67,6 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
