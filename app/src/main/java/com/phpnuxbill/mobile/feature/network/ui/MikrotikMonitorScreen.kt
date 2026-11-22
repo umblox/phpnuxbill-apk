@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package com.phpnuxbill.mobile.feature.network.ui
 
 import androidx.compose.animation.AnimatedVisibility
