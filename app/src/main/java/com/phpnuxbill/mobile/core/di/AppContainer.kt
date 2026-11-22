@@ -6,6 +6,8 @@ import com.phpnuxbill.mobile.core.datastore.DataStoreSessionStorage
 import com.phpnuxbill.mobile.core.datastore.SessionStorage
 import com.phpnuxbill.mobile.core.network.NetworkGateway
 import com.phpnuxbill.mobile.core.network.OkHttpMobileApiClient
+import com.phpnuxbill.mobile.feature.auth.data.AuthRepository
+import com.phpnuxbill.mobile.feature.auth.data.RemoteAuthRepository
 
 /**
  * Kontrak Dependency Injection Utama (SOLID - Dependency Inversion Principle)
@@ -14,6 +16,7 @@ interface AppContainer {
     val gson: Gson
     val sessionStorage: SessionStorage
     val networkGateway: NetworkGateway
+    val authRepository: AuthRepository
 }
 
 class DefaultAppContainer(context: Context) : AppContainer {
@@ -29,5 +32,12 @@ class DefaultAppContainer(context: Context) : AppContainer {
 
     override val networkGateway: NetworkGateway by lazy {
         OkHttpMobileApiClient(sessionStorage = sessionStorage, gson = gson)
+    }
+
+    override val authRepository: AuthRepository by lazy {
+        RemoteAuthRepository(
+            networkGateway = networkGateway,
+            sessionStorage = sessionStorage
+        )
     }
 }
