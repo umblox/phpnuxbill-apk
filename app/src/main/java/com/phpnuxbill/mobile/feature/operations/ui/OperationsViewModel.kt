@@ -19,6 +19,7 @@ import com.phpnuxbill.mobile.feature.operations.model.DbStatusData
 import com.phpnuxbill.mobile.feature.operations.model.FinancialReportData
 import com.phpnuxbill.mobile.feature.operations.model.MessageSendFormState
 import com.phpnuxbill.mobile.feature.operations.model.NetworkMapData
+import com.phpnuxbill.mobile.feature.operations.model.NotificationTemplateItem
 import com.phpnuxbill.mobile.feature.operations.model.PgAuditData
 import com.phpnuxbill.mobile.feature.operations.model.StaffFormState
 import com.phpnuxbill.mobile.feature.operations.model.StaffUserItem
@@ -93,10 +94,8 @@ class OperationsViewModel(
     // Pengaturan, Template Notifikasi, Staf, DB & Logs
     private val _webSettings = MutableStateFlow(WebServerSettings())
     val webSettings: StateFlow<WebServerSettings> = _webSettings.asStateFlow()
-    private val _notifTemplates = MutableStateFlow>(emptyMap())
-    val notifTemplates: StateFlow> = _notifTemplates.asStateFlow()
-    private val _notifDefaults = MutableStateFlow>(emptyMap())
-    val notifDefaults: StateFlow> = _notifDefaults.asStateFlow()
+    private val _notifTemplates = MutableStateFlow(emptyList<NotificationTemplateItem>())
+    val notifTemplates: StateFlow<List<NotificationTemplateItem>> = _notifTemplates.asStateFlow()
     private val _staffListState = MutableStateFlow<UiState<List<StaffUserItem>>>(UiState.Loading)
     val staffListState: StateFlow<UiState<List<StaffUserItem>>> = _staffListState.asStateFlow()
     private val _staffForm = MutableStateFlow(StaffFormState())
@@ -515,24 +514,26 @@ class OperationsViewModel(
     fun loadNotificationTemplates() {
         viewModelScope.launch {
             when (val res = repository.getNotificationTemplates()) {
-                is ApiResult.Success -> {
-                    _notifTemplates.value = res.data.first
-                    _notifDefaults.value = res.data.second
-                }
+                is ApiResult.Success -> _notifTemplates.value = res.data
                 is ApiResult.Error -> _bannerMessage.value = res.message
             }
         }
     }
 
     fun updateNotifTemplate(key: String, value: String) {
-        _notifTemplates.update { current ->
-            current.toMutableMap().apply { put(key, value) }
+        _notifTemplates.update { list ->
+            list.map { item ->
+                if (item.key == key) item.copy(value = value) else item
+            }
         }
     }
 
     fun resetNotifTemplateToDefault(key: String) {
-        val def = _notifDefaults.value[key] ?: return
-        updateNotifTemplate(key, def)
+        _notifTemplates.update { list ->
+            list.map { item ->
+                if (item.key == key) item.copy(value = item.defaultValue) else item
+            }
+        }
     }
 
     fun saveNotificationTemplates() {
