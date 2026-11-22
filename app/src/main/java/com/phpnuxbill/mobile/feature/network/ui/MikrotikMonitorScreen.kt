@@ -656,6 +656,7 @@ private fun ResourcePill(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun OnlineUsersTabContent(
     state: UiState<OnlineUsersSummary>,
@@ -878,6 +879,7 @@ private fun RoutersAndPoolsTabContent(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RouterLogsTabContent(
     logs: List<RouterLogEntry>,
