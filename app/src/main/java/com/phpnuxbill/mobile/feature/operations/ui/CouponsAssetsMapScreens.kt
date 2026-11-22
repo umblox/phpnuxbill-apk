@@ -4,7 +4,7 @@ import android.annotation.SuppressLint
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -15,8 +15,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -25,13 +23,16 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -46,6 +47,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -54,6 +56,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -83,6 +86,7 @@ fun CouponsAndAssetsScreen(
     onOpenDrawer: () -> Unit
 ) {
     val couponsState by viewModel.couponsState.collectAsStateWithLifecycle()
+    val couponSearch by viewModel.couponSearch.collectAsStateWithLifecycle()
     val couponForm by viewModel.couponForm.collectAsStateWithLifecycle()
     val assetsState by viewModel.assetsState.collectAsStateWithLifecycle()
     val assetForm by viewModel.assetForm.collectAsStateWithLifecycle()
@@ -114,7 +118,7 @@ fun CouponsAndAssetsScreen(
                         OutlinedButton(onClick = viewModel::closeCouponForm, modifier = Modifier.weight(1f)) { Text(strings.cancel) }
                         Button(
                             onClick = viewModel::submitCouponForm,
-                            enabled = !couponForm.isSaving && couponForm.code.isNotBlank(),
+                            enabled = !couponForm.isSaving && couponForm.code.isNotBlank() && couponForm.value.isNotBlank(),
                             modifier = Modifier.weight(1.5f)
                         ) { Text(strings.save) }
                     }
@@ -129,6 +133,11 @@ fun CouponsAndAssetsScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                AnimatedVisibility(visible = !couponForm.error.isNullOrBlank()) {
+                    Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(10.dp)) {
+                        Text(couponForm.error.orEmpty(), color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(12.dp))
+                    }
+                }
                 OutlinedTextField(
                     value = couponForm.code,
                     onValueChange = { v -> viewModel.updateCouponForm { it.copy(code = v.uppercase()) } },
@@ -146,28 +155,62 @@ fun CouponsAndAssetsScreen(
                         )
                     }
                 }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = couponForm.value,
+                        onValueChange = { v -> viewModel.updateCouponForm { it.copy(value = v) } },
+                        label = { Text(labels.discountValue) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = couponForm.maxDiscountAmount,
+                        onValueChange = { v -> viewModel.updateCouponForm { it.copy(maxDiscountAmount = v.filter { c -> c.isDigit() }) } },
+                        label = { Text(labels.maxDiscountLabel) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = couponForm.maxUsage,
+                        onValueChange = { v -> viewModel.updateCouponForm { it.copy(maxUsage = v.filter { c -> c.isDigit() }) } },
+                        label = { Text(labels.maxUsageLabel) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = couponForm.minOrderAmount,
+                        onValueChange = { v -> viewModel.updateCouponForm { it.copy(minOrderAmount = v) } },
+                        label = { Text(labels.minOrderLabel) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = couponForm.startDate,
+                        onValueChange = { v -> viewModel.updateCouponForm { it.copy(startDate = v) } },
+                        label = { Text(labels.validFromLabel) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = couponForm.endDate,
+                        onValueChange = { v -> viewModel.updateCouponForm { it.copy(endDate = v) } },
+                        label = { Text(labels.validUntilLabel) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
                 OutlinedTextField(
-                    value = couponForm.value,
-                    onValueChange = { v -> viewModel.updateCouponForm { it.copy(value = v) } },
-                    label = { Text(labels.discountValue) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = couponForm.maxUsage,
-                    onValueChange = { v -> viewModel.updateCouponForm { it.copy(maxUsage = v.filter { c -> c.isDigit() }) } },
-                    label = { Text(labels.maxUsageLabel) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = couponForm.minOrderAmount,
-                    onValueChange = { v -> viewModel.updateCouponForm { it.copy(minOrderAmount = v) } },
-                    label = { Text(labels.minOrderLabel) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
+                    value = couponForm.description,
+                    onValueChange = { v -> viewModel.updateCouponForm { it.copy(description = v) } },
+                    label = { Text(labels.descriptionLabel) },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -205,6 +248,11 @@ fun CouponsAndAssetsScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                AnimatedVisibility(visible = !assetForm.error.isNullOrBlank()) {
+                    Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(10.dp)) {
+                        Text(assetForm.error.orEmpty(), color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(12.dp))
+                    }
+                }
                 OutlinedTextField(
                     value = assetForm.name,
                     onValueChange = { v -> viewModel.updateAssetForm { it.copy(name = v) } },
@@ -212,21 +260,50 @@ fun CouponsAndAssetsScreen(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedTextField(
-                    value = assetForm.category,
-                    onValueChange = { v -> viewModel.updateAssetForm { it.copy(category = v) } },
-                    label = { Text(labels.assetCategory) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = assetForm.cost,
-                    onValueChange = { v -> viewModel.updateAssetForm { it.copy(cost = v) } },
-                    label = { Text(labels.assetCost) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = assetForm.category,
+                        onValueChange = { v -> viewModel.updateAssetForm { it.copy(category = v) } },
+                        label = { Text(labels.assetCategory) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = assetForm.brand,
+                        onValueChange = { v -> viewModel.updateAssetForm { it.copy(brand = v) } },
+                        label = { Text(labels.assetBrand) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = assetForm.serialNumber,
+                        onValueChange = { v -> viewModel.updateAssetForm { it.copy(serialNumber = v) } },
+                        label = { Text(labels.assetSerial) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = assetForm.cost,
+                        onValueChange = { v -> viewModel.updateAssetForm { it.copy(cost = v) } },
+                        label = { Text(labels.assetCost) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Text(labels.assetCondition, style = MaterialTheme.typography.labelLarge)
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    listOf("Good", "Fair", "Broken").forEachIndexed { idx, cond ->
+                        SegmentedButton(
+                            selected = assetForm.conditionStatus.equals(cond, true),
+                            onClick = { viewModel.updateAssetForm { it.copy(conditionStatus = cond) } },
+                            shape = SegmentedButtonDefaults.itemShape(idx, 3),
+                            label = { Text(cond) }
+                        )
+                    }
+                }
                 OutlinedTextField(
                     value = assetForm.location,
                     onValueChange = { v -> viewModel.updateAssetForm { it.copy(location = v) } },
@@ -239,6 +316,13 @@ fun CouponsAndAssetsScreen(
                     onValueChange = { v -> viewModel.updateAssetForm { it.copy(coordinates = v) } },
                     label = { Text("Coordinates (lat, lng)") },
                     singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = assetForm.notes,
+                    onValueChange = { v -> viewModel.updateAssetForm { it.copy(notes = v) } },
+                    label = { Text(labels.assetNotes) },
+                    minLines = 2,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -263,9 +347,7 @@ fun CouponsAndAssetsScreen(
                     if (selectedTab == 0) viewModel.openCouponForm(null)
                     else viewModel.openAssetForm(null)
                 }
-            ) {
-                Icon(Icons.Outlined.Add, contentDescription = strings.add)
-            }
+            ) { Icon(Icons.Outlined.Add, contentDescription = strings.add) }
         }
     ) { innerPadding ->
         Column(
@@ -280,6 +362,26 @@ fun CouponsAndAssetsScreen(
             }
 
             if (selectedTab == 0) {
+                OutlinedTextField(
+                    value = couponSearch,
+                    onValueChange = viewModel::onCouponSearchChanged,
+                    placeholder = { Text(labels.couponCode) },
+                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (couponSearch.isNotEmpty()) {
+                            IconButton(onClick = { viewModel.onCouponSearchChanged("") }) {
+                                Icon(Icons.Outlined.Close, contentDescription = null)
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surface)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
                 when (val st = couponsState) {
                     is UiState.Idle, is UiState.Loading -> LoadingStateView()
                     is UiState.Error -> ErrorStateView(message = st.message, onRetry = { viewModel.loadCoupons() })
@@ -300,10 +402,11 @@ fun CouponsAndAssetsScreen(
                                             Text(cp.code, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                             val valLabel = if (cp.type == "percent") "${cp.value.toInt()}%" else formatMoney(session.currencyCode, cp.value)
                                             Text("$valLabel • Used: ${cp.usageCount}/${if (cp.maxUsage == 0) "∞" else cp.maxUsage}", style = MaterialTheme.typography.bodyMedium)
+                                            Text("${cp.startDate} → ${cp.endDate}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
-                                        StatusBadge(
-                                            text = cp.status.uppercase(),
-                                            tone = if (cp.status == "active") BadgeTone.SUCCESS else BadgeTone.NEUTRAL
+                                        Switch(
+                                            checked = cp.status == "active",
+                                            onCheckedChange = { viewModel.toggleCouponStatus(cp) }
                                         )
                                         IconButton(onClick = { viewModel.openCouponForm(cp) }) { Icon(Icons.Outlined.Edit, contentDescription = null) }
                                         IconButton(onClick = { viewModel.deleteCoupon(cp.id) }) {
@@ -343,11 +446,23 @@ fun CouponsAndAssetsScreen(
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text("${asset.name} (${asset.category})", fontWeight = FontWeight.Bold)
                                             Text(
-                                                text = "${asset.location.ifBlank { "-" }} • ${formatMoney(session.currencyCode, asset.cost)}",
-                                                style = MaterialTheme.typography.bodyMedium,
+                                                text = "${asset.brand.ifBlank { "-" }} • SN: ${asset.serialNumber.ifBlank { "-" }}",
+                                                style = MaterialTheme.typography.labelMedium,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
+                                            Text(
+                                                text = "${asset.location.ifBlank { "-" }} • ${formatMoney(session.currencyCode, asset.cost)}",
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
                                         }
+                                        StatusBadge(
+                                            text = asset.conditionStatus,
+                                            tone = when (asset.conditionStatus.lowercase()) {
+                                                "good" -> BadgeTone.SUCCESS
+                                                "broken" -> BadgeTone.DANGER
+                                                else -> BadgeTone.WARNING
+                                            }
+                                        )
                                         IconButton(onClick = { viewModel.openAssetForm(asset) }) { Icon(Icons.Outlined.Edit, contentDescription = null) }
                                         IconButton(onClick = { viewModel.deleteAsset(asset.id) }) {
                                             Icon(Icons.Outlined.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
@@ -373,6 +488,9 @@ fun NetworkMapScreen(
 ) {
     val mapState by viewModel.mapState.collectAsStateWithLifecycle()
     val strings = LocalAppStrings.current
+    var showRouters by remember { mutableStateOf(true) }
+    var showCustomers by remember { mutableStateOf(true) }
+    var showAssets by remember { mutableStateOf(true) }
 
     Scaffold(
         topBar = {
@@ -400,6 +518,17 @@ fun NetworkMapScreen(
             is UiState.Error -> ErrorStateView(message = st.message, onRetry = viewModel::loadNetworkMap, modifier = Modifier.padding(innerPadding))
             is UiState.Success -> {
                 val data = st.data
+                val filteredPoints = remember(data.points, showRouters, showCustomers, showAssets) {
+                    data.points.filter {
+                        when (it.category) {
+                            "router" -> showRouters
+                            "asset" -> showAssets
+                            else -> showCustomers
+                        }
+                    }
+                }
+                val html = remember(filteredPoints) { buildNetworkOverviewLeafletHtml(filteredPoints) }
+
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -409,15 +538,26 @@ fun NetworkMapScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(MaterialTheme.colorScheme.surface)
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        StatusBadge(text = "Routers: ${data.routersCount}", tone = BadgeTone.NEUTRAL)
-                        StatusBadge(text = "Customers: ${data.customersCount}", tone = BadgeTone.SUCCESS)
-                        StatusBadge(text = "Assets: ${data.assetsCount}", tone = BadgeTone.WARNING)
+                        FilterChip(
+                            selected = showRouters,
+                            onClick = { showRouters = !showRouters },
+                            label = { Text("Routers (${data.routersCount})") }
+                        )
+                        FilterChip(
+                            selected = showCustomers,
+                            onClick = { showCustomers = !showCustomers },
+                            label = { Text("Users (${data.customersCount})") }
+                        )
+                        FilterChip(
+                            selected = showAssets,
+                            onClick = { showAssets = !showAssets },
+                            label = { Text("Assets (${data.assetsCount})") }
+                        )
                     }
 
-                    val html = remember(data.points) { buildNetworkOverviewLeafletHtml(data.points) }
                     AndroidView(
                         modifier = Modifier.fillMaxSize(),
                         factory = { ctx ->
@@ -428,6 +568,9 @@ fun NetworkMapScreen(
                                 webChromeClient = WebChromeClient()
                                 loadDataWithBaseURL("https://unpkg.com/", html, "text/html", "UTF-8", null)
                             }
+                        },
+                        update = { webView ->
+                            webView.loadDataWithBaseURL("https://unpkg.com/", html, "text/html", "UTF-8", null)
                         }
                     )
                 }
