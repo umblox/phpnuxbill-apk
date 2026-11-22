@@ -479,7 +479,7 @@ fun SettingsSystemScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             val entries = notifTemplates.entries.toList()
-                            items(entries, key = { it.key }) { (key, value) ->
+                            items(notifTemplates, key = { it.key }) { item ->
                                 Surface(
                                     shape = RoundedCornerShape(14.dp),
                                     color = MaterialTheme.colorScheme.surface,
@@ -493,17 +493,19 @@ fun SettingsSystemScreen(
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Text(
-                                                text = key,
+                                                text = item.key,
                                                 style = MaterialTheme.typography.titleMedium,
                                                 color = MaterialTheme.colorScheme.primary
                                             )
-                                            TextButton(onClick = { viewModel.resetNotifTemplateToDefault(key) }) {
+                                            TextButton(onClick = { viewModel.resetNotifTemplateToDefault(item.key) }) {
                                                 Text("Default")
                                             }
                                         }
                                         OutlinedTextField(
-                                            value = value,
-                                            onValueChange = { viewModel.updateNotifTemplate(key, it) },
+                                            value = item.value,
+                                            onValueChange = { newText ->
+                                                viewModel.updateNotifTemplate(item.key, newText)
+                                            },
                                             minLines = 3,
                                             modifier = Modifier.fillMaxWidth(),
                                             shape = RoundedCornerShape(10.dp)
