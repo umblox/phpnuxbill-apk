@@ -192,6 +192,12 @@ data class WebServerSettings(
     val isSaving: Boolean = false
 )
 
+data class NotificationTemplateItem(
+    val key: String,
+    val value: String,
+    val defaultValue: String
+)
+
 data class StaffUserItem(
     val id: Int,
     val username: String,
