@@ -25,7 +25,7 @@ data class CustomerBillItem(
     val price: Double,
     val currency: String,
     val gateway: String,
-    val uiMode: String, // qris | va_code | ewallet_link | checkout_url
+    val uiMode: String,
     val paymentMethod: String,
     val paymentChannel: String,
     val payCode: String,
