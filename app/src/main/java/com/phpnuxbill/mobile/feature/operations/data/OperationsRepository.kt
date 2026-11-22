@@ -21,6 +21,7 @@ import com.phpnuxbill.mobile.feature.operations.model.GatewayBreakdownItem
 import com.phpnuxbill.mobile.feature.operations.model.MapPointItem
 import com.phpnuxbill.mobile.feature.operations.model.MessageSendFormState
 import com.phpnuxbill.mobile.feature.operations.model.NetworkMapData
+import com.phpnuxbill.mobile.feature.operations.model.NotificationTemplateItem
 import com.phpnuxbill.mobile.feature.operations.model.PgAuditData
 import com.phpnuxbill.mobile.feature.operations.model.PgGatewayStat
 import com.phpnuxbill.mobile.feature.operations.model.PgTransactionItem
@@ -69,8 +70,8 @@ interface OperationsRepository {
     suspend fun getWebSettings(): ApiResult<WebServerSettings>
     suspend fun saveWebSettings(settings: WebServerSettings): ApiResult<String>
     suspend fun testNotificationGateway(channel: String, target: String): ApiResult<String>
-    suspend fun getNotificationTemplates(): ApiResult<Pair, Map<String, String>>>
-    suspend fun saveNotificationTemplates(templates: Map<String, String>): ApiResult<String>
+    suspend fun getNotificationTemplates(): ApiResult<List<NotificationTemplateItem>>
+    suspend fun saveNotificationTemplates(items: List<NotificationTemplateItem>): ApiResult<String>
     suspend fun getStaffList(search: String = ""): ApiResult<List<StaffUserItem>>
     suspend fun saveStaff(form: StaffFormState): ApiResult<String>
     suspend fun deleteStaff(staffId: Int): ApiResult<String>
@@ -524,29 +525,43 @@ class RemoteOperationsRepository(
         }
     }
 
-    override suspend fun getNotificationTemplates(): ApiResult<Pair, Map<String, String>>> {
+    override suspend fun getNotificationTemplates(): ApiResult<List<NotificationTemplateItem>> {
         return when (val res = networkGateway.get(action = "admin_notifications_get")) {
             is ApiResult.Error -> res
             is ApiResult.Success -> {
                 val root = res.data.asObjOrNull()
-                val current = linkedMapOf<String, String>()
-                val defaults = linkedMapOf<String, String>()
-                root?.getAsJsonObject("notifications")?.entrySet()?.forEach { (k, v) ->
-                    if (!v.isJsonNull) current[k] = v.asString
+                val currObj = root?.getAsJsonObject("notifications")
+                val defObj = root?.getAsJsonObject("defaults")
+
+                val allKeys = linkedSetOf<String>()
+                currObj?.keySet()?.let { allKeys.addAll(it) }
+                defObj?.keySet()?.let { allKeys.addAll(it) }
+
+                val items = allKeys.map { k ->
+                    val defVal = if (defObj != null && defObj.has(k) && !defObj.get(k).isJsonNull) {
+                        defObj.get(k).asString
+                    } else ""
+                    val currVal = if (currObj != null && currObj.has(k) && !currObj.get(k).isJsonNull) {
+                        currObj.get(k).asString
+                    } else defVal
+                    NotificationTemplateItem(
+                        key = k,
+                        value = currVal,
+                        defaultValue = defVal
+                    )
                 }
-                root?.getAsJsonObject("defaults")?.entrySet()?.forEach { (k, v) ->
-                    if (!v.isJsonNull) defaults[k] = v.asString
-                }
-                ApiResult.Success(current to defaults, res.message)
+                ApiResult.Success(items, res.message)
             }
         }
     }
 
-    override suspend fun saveNotificationTemplates(templates: Map<String, String>): ApiResult<String> {
+    override suspend fun saveNotificationTemplates(items: List<NotificationTemplateItem>): ApiResult<String> {
+        val payloadMap = linkedMapOf<String, String>()
+        items.forEach { payloadMap[it.key] = it.value }
         return when (
             val res = networkGateway.postJson(
                 action = "admin_notifications_save",
-                body = mapOf("notifications" to templates)
+                body = mapOf("notifications" to payloadMap)
             )
         ) {
             is ApiResult.Error -> res
