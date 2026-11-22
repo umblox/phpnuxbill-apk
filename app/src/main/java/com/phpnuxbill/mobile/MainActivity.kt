@@ -5,13 +5,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -63,15 +61,35 @@ import com.phpnuxbill.mobile.core.i18n.AppLanguage
 import com.phpnuxbill.mobile.core.i18n.LocalAppStrings
 import com.phpnuxbill.mobile.core.i18n.getStringsForLanguage
 import com.phpnuxbill.mobile.core.model.SessionState
-import com.phpnuxbill.mobile.core.ui.components.AppScreenScaffold
+import com.phpnuxbill.mobile.core.model.UserRole
 import com.phpnuxbill.mobile.core.ui.components.BrandLogo
 import com.phpnuxbill.mobile.core.ui.components.LanguageToggleChip
 import com.phpnuxbill.mobile.core.ui.theme.PHPNuxBillTheme
 import com.phpnuxbill.mobile.feature.auth.ui.AuthViewModel
 import com.phpnuxbill.mobile.feature.auth.ui.LoginScreen
+import com.phpnuxbill.mobile.feature.customers.ui.CustomerScreen
+import com.phpnuxbill.mobile.feature.customers.ui.CustomerViewModel
 import com.phpnuxbill.mobile.feature.dashboard.model.AdminDestination
 import com.phpnuxbill.mobile.feature.dashboard.ui.AdminDashboardScreen
 import com.phpnuxbill.mobile.feature.dashboard.ui.DashboardViewModel
+import com.phpnuxbill.mobile.feature.network.ui.GenieAcsScreen
+import com.phpnuxbill.mobile.feature.network.ui.MikrotikMonitorScreen
+import com.phpnuxbill.mobile.feature.network.ui.NetworkGenieAcsViewModel
+import com.phpnuxbill.mobile.feature.operations.ui.CouponsAndAssetsScreen
+import com.phpnuxbill.mobile.feature.operations.ui.MessagesScreen
+import com.phpnuxbill.mobile.feature.operations.ui.NetworkMapScreen
+import com.phpnuxbill.mobile.feature.operations.ui.OperationsViewModel
+import com.phpnuxbill.mobile.feature.operations.ui.PaymentGatewayScreen
+import com.phpnuxbill.mobile.feature.operations.ui.ReportsScreen
+import com.phpnuxbill.mobile.feature.operations.ui.SettingsScreen
+import com.phpnuxbill.mobile.feature.plans.ui.BandwidthScreen
+import com.phpnuxbill.mobile.feature.plans.ui.PlanBandwidthViewModel
+import com.phpnuxbill.mobile.feature.plans.ui.PlansScreen
+import com.phpnuxbill.mobile.feature.portal.ui.CustomerPortalScreen
+import com.phpnuxbill.mobile.feature.portal.ui.CustomerPortalViewModel
+import com.phpnuxbill.mobile.feature.services.ui.ServiceVoucherViewModel
+import com.phpnuxbill.mobile.feature.services.ui.ServicesScreen
+import com.phpnuxbill.mobile.feature.services.ui.VouchersScreen
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -94,15 +112,32 @@ class MainActivity : ComponentActivity() {
 
             CompositionLocalProvider(LocalAppStrings provides strings) {
                 PHPNuxBillTheme(themeMode = session.themeMode) {
-                    if (!session.isLoggedIn) {
-                        LoginScreen(viewModel = authViewModel)
-                    } else {
-                        AuthenticatedAdminShell(
-                            container = container,
-                            session = session,
-                            onLanguageSelected = authViewModel::onLanguageSelected,
-                            onLogout = authViewModel::onLogout
-                        )
+                    when {
+                        !session.isLoggedIn -> {
+                            LoginScreen(viewModel = authViewModel)
+                        }
+                        session.role == UserRole.CUSTOMER -> {
+                            val portalVm: CustomerPortalViewModel = viewModel(
+                                key = "portal_${session.activeServerUrl}_${session.token}",
+                                factory = CustomerPortalViewModel.Factory(
+                                    repository = container.customerPortalRepository,
+                                    sessionStorage = container.sessionStorage
+                                )
+                            )
+                            CustomerPortalScreen(
+                                viewModel = portalVm,
+                                session = session,
+                                onLogout = authViewModel::onLogout
+                            )
+                        }
+                        else -> {
+                            AuthenticatedAdminShell(
+                                container = container,
+                                session = session,
+                                onLanguageSelected = authViewModel::onLanguageSelected,
+                                onLogout = authViewModel::onLogout
+                            )
+                        }
                     }
                 }
             }
@@ -163,6 +198,9 @@ private fun AuthenticatedAdminShell(
         )
     }
 
+    val openDrawerFn: () -> Unit = { scope.launch { drawerState.open() } }
+    val sessionKey = "${session.activeServerUrl}_${session.token}"
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -173,7 +211,6 @@ private fun AuthenticatedAdminShell(
                         .verticalScroll(rememberScrollState())
                         .padding(vertical = 12.dp)
                 ) {
-                    // Header Drawer: Logo & Nama Perusahaan Dinamis (Menggantikan PHPNuxBill)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -267,52 +304,117 @@ private fun AuthenticatedAdminShell(
     ) {
         when (currentDestination) {
             AdminDestination.DASHBOARD -> {
-                val dashboardVm: DashboardViewModel = viewModel(
-                    key = "${session.activeServerUrl}_${session.token}",
-                    factory = DashboardViewModel.Factory(
-                        dashboardRepository = container.dashboardRepository,
-                        sessionStorage = container.sessionStorage
-                    )
+                val vm: DashboardViewModel = viewModel(
+                    key = "dash_$sessionKey",
+                    factory = DashboardViewModel.Factory(container.dashboardRepository, container.sessionStorage)
                 )
                 AdminDashboardScreen(
-                    viewModel = dashboardVm,
+                    viewModel = vm,
                     session = session,
-                    onOpenDrawer = { scope.launch { drawerState.open() } },
+                    onOpenDrawer = openDrawerFn,
                     onNavigate = { currentDestination = it },
                     onSwitchServerClick = { showLogoutDialog = true },
                     onLogoutClick = { showLogoutDialog = true }
                 )
             }
-            else -> {
-                val label = drawerItems.find { it.first == currentDestination }?.second
-                    ?: currentDestination.name
-                AppScreenScaffold(
-                    title = label,
-                    subtitle = session.effectiveCompanyName,
-                    onBack = { currentDestination = AdminDestination.DASHBOARD }
-                ) { pad ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(pad)
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = label,
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = strings.loading,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
+            AdminDestination.CUSTOMERS -> {
+                val vm: CustomerViewModel = viewModel(
+                    key = "cust_$sessionKey",
+                    factory = CustomerViewModel.Factory(container.customerRepository, container.sessionStorage)
+                )
+                CustomerScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
+            }
+            AdminDestination.SERVICES -> {
+                val vm: ServiceVoucherViewModel = viewModel(
+                    key = "srv_$sessionKey",
+                    factory = ServiceVoucherViewModel.Factory(
+                        container.serviceVoucherRepository,
+                        container.sessionStorage,
+                        container.bluetoothPrinterHelper
+                    )
+                )
+                ServicesScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
+            }
+            AdminDestination.VOUCHERS -> {
+                val vm: ServiceVoucherViewModel = viewModel(
+                    key = "srv_$sessionKey",
+                    factory = ServiceVoucherViewModel.Factory(
+                        container.serviceVoucherRepository,
+                        container.sessionStorage,
+                        container.bluetoothPrinterHelper
+                    )
+                )
+                VouchersScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
+            }
+            AdminDestination.PLANS -> {
+                val vm: PlanBandwidthViewModel = viewModel(
+                    key = "plan_$sessionKey",
+                    factory = PlanBandwidthViewModel.Factory(container.planBandwidthRepository, container.sessionStorage)
+                )
+                PlansScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
+            }
+            AdminDestination.BANDWIDTH -> {
+                val vm: PlanBandwidthViewModel = viewModel(
+                    key = "plan_$sessionKey",
+                    factory = PlanBandwidthViewModel.Factory(container.planBandwidthRepository, container.sessionStorage)
+                )
+                BandwidthScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
+            }
+            AdminDestination.MIKROTIK -> {
+                val vm: NetworkGenieAcsViewModel = viewModel(
+                    key = "net_$sessionKey",
+                    factory = NetworkGenieAcsViewModel.Factory(container.networkGenieAcsRepository, container.sessionStorage)
+                )
+                MikrotikMonitorScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
+            }
+            AdminDestination.GENIEACS -> {
+                val vm: NetworkGenieAcsViewModel = viewModel(
+                    key = "net_$sessionKey",
+                    factory = NetworkGenieAcsViewModel.Factory(container.networkGenieAcsRepository, container.sessionStorage)
+                )
+                GenieAcsScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
+            }
+            AdminDestination.REPORTS -> {
+                val vm: OperationsViewModel = viewModel(
+                    key = "ops_$sessionKey",
+                    factory = OperationsViewModel.Factory(container.operationsRepository, container.sessionStorage)
+                )
+                ReportsScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
+            }
+            AdminDestination.PAYMENT_GATEWAY -> {
+                val vm: OperationsViewModel = viewModel(
+                    key = "ops_$sessionKey",
+                    factory = OperationsViewModel.Factory(container.operationsRepository, container.sessionStorage)
+                )
+                PaymentGatewayScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
+            }
+            AdminDestination.COUPONS_ASSETS -> {
+                val vm: OperationsViewModel = viewModel(
+                    key = "ops_$sessionKey",
+                    factory = OperationsViewModel.Factory(container.operationsRepository, container.sessionStorage)
+                )
+                CouponsAndAssetsScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
+            }
+            AdminDestination.MAP -> {
+                val vm: OperationsViewModel = viewModel(
+                    key = "ops_$sessionKey",
+                    factory = OperationsViewModel.Factory(container.operationsRepository, container.sessionStorage)
+                )
+                NetworkMapScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
+            }
+            AdminDestination.MESSAGES -> {
+                val vm: OperationsViewModel = viewModel(
+                    key = "ops_$sessionKey",
+                    factory = OperationsViewModel.Factory(container.operationsRepository, container.sessionStorage)
+                )
+                MessagesScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
+            }
+            AdminDestination.SETTINGS -> {
+                val vm: OperationsViewModel = viewModel(
+                    key = "ops_$sessionKey",
+                    factory = OperationsViewModel.Factory(container.operationsRepository, container.sessionStorage)
+                )
+                SettingsScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
             }
         }
     }
