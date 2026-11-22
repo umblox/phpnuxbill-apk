@@ -8,6 +8,8 @@ import com.phpnuxbill.mobile.core.network.NetworkGateway
 import com.phpnuxbill.mobile.core.network.OkHttpMobileApiClient
 import com.phpnuxbill.mobile.feature.auth.data.AuthRepository
 import com.phpnuxbill.mobile.feature.auth.data.RemoteAuthRepository
+import com.phpnuxbill.mobile.feature.dashboard.data.DashboardRepository
+import com.phpnuxbill.mobile.feature.dashboard.data.RemoteDashboardRepository
 
 /**
  * Kontrak Dependency Injection Utama (SOLID - Dependency Inversion Principle)
@@ -17,6 +19,7 @@ interface AppContainer {
     val sessionStorage: SessionStorage
     val networkGateway: NetworkGateway
     val authRepository: AuthRepository
+    val dashboardRepository: DashboardRepository
 }
 
 class DefaultAppContainer(context: Context) : AppContainer {
@@ -36,6 +39,13 @@ class DefaultAppContainer(context: Context) : AppContainer {
 
     override val authRepository: AuthRepository by lazy {
         RemoteAuthRepository(
+            networkGateway = networkGateway,
+            sessionStorage = sessionStorage
+        )
+    }
+
+    override val dashboardRepository: DashboardRepository by lazy {
+        RemoteDashboardRepository(
             networkGateway = networkGateway,
             sessionStorage = sessionStorage
         )
