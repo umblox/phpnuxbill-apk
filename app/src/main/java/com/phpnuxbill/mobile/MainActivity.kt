@@ -76,12 +76,12 @@ import com.phpnuxbill.mobile.feature.network.ui.GenieAcsScreen
 import com.phpnuxbill.mobile.feature.network.ui.MikrotikMonitorScreen
 import com.phpnuxbill.mobile.feature.network.ui.NetworkGenieAcsViewModel
 import com.phpnuxbill.mobile.feature.operations.ui.CouponsAndAssetsScreen
-import com.phpnuxbill.mobile.feature.operations.ui.MessagesScreen
+import com.phpnuxbill.mobile.feature.operations.ui.MessagesAndPagesScreen
 import com.phpnuxbill.mobile.feature.operations.ui.NetworkMapScreen
 import com.phpnuxbill.mobile.feature.operations.ui.OperationsViewModel
 import com.phpnuxbill.mobile.feature.operations.ui.PaymentGatewayScreen
 import com.phpnuxbill.mobile.feature.operations.ui.ReportsScreen
-import com.phpnuxbill.mobile.feature.operations.ui.SettingsScreen
+import com.phpnuxbill.mobile.feature.operations.ui.SettingsSystemScreen
 import com.phpnuxbill.mobile.feature.plans.ui.BandwidthScreen
 import com.phpnuxbill.mobile.feature.plans.ui.PlanBandwidthViewModel
 import com.phpnuxbill.mobile.feature.plans.ui.PlansScreen
@@ -191,9 +191,7 @@ private fun AuthenticatedAdminShell(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showLogoutDialog = false }) {
-                    Text(strings.cancel)
-                }
+                TextButton(onClick = { showLogoutDialog = false }) { Text(strings.cancel) }
             }
         )
     }
@@ -285,12 +283,7 @@ private fun AuthenticatedAdminShell(
                                 tint = MaterialTheme.colorScheme.error
                             )
                         },
-                        label = {
-                            Text(
-                                text = strings.logoutButton,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        },
+                        label = { Text(text = strings.logoutButton, color = MaterialTheme.colorScheme.error) },
                         selected = false,
                         onClick = {
                             scope.launch { drawerState.close() }
@@ -407,14 +400,14 @@ private fun AuthenticatedAdminShell(
                     key = "ops_$sessionKey",
                     factory = OperationsViewModel.Factory(container.operationsRepository, container.sessionStorage)
                 )
-                MessagesScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
+                MessagesAndPagesScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
             }
             AdminDestination.SETTINGS -> {
                 val vm: OperationsViewModel = viewModel(
                     key = "ops_$sessionKey",
                     factory = OperationsViewModel.Factory(container.operationsRepository, container.sessionStorage)
                 )
-                SettingsScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
+                SettingsSystemScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
             }
         }
     }
