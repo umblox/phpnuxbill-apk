@@ -478,7 +478,6 @@ fun SettingsSystemScreen(
                             contentPadding = PaddingValues(16.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            val entries = notifTemplates.entries.toList()
                             items(notifTemplates, key = { it.key }) { item ->
                                 Surface(
                                     shape = RoundedCornerShape(14.dp),
@@ -497,7 +496,9 @@ fun SettingsSystemScreen(
                                                 style = MaterialTheme.typography.titleMedium,
                                                 color = MaterialTheme.colorScheme.primary
                                             )
-                                            TextButton(onClick = { viewModel.resetNotifTemplateToDefault(item.key) }) {
+                                            TextButton(
+                                                onClick = { viewModel.resetNotifTemplateToDefault(item.key) }
+                                            ) {
                                                 Text("Default")
                                             }
                                         }
