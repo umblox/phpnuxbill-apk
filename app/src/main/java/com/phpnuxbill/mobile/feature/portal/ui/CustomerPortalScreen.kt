@@ -36,15 +36,11 @@ import androidx.compose.material.icons.outlined.AddCard
 import androidx.compose.material.icons.outlined.Campaign
 import androidx.compose.material.icons.outlined.CardGiftcard
 import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.CloudOff
-import androidx.compose.material.icons.outlined.CloudSync
 import androidx.compose.material.icons.outlined.ConfirmationNumber
 import androidx.compose.material.icons.outlined.HourglassTop
 import androidx.compose.material.icons.outlined.MailOutline
 import androidx.compose.material.icons.outlined.Payments
-import androidx.compose.material.icons.outlined.PowerSettingsNew
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Router
 import androidx.compose.material.icons.outlined.ShoppingBag
 import androidx.compose.material.icons.outlined.SupportAgent
 import androidx.compose.material.icons.outlined.Sync
@@ -53,7 +49,6 @@ import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -90,7 +85,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -106,11 +100,8 @@ import com.phpnuxbill.mobile.core.ui.components.StatusBadge
 import com.phpnuxbill.mobile.feature.dashboard.ui.formatMoney
 import com.phpnuxbill.mobile.feature.portal.model.CustomerBillItem
 import com.phpnuxbill.mobile.feature.portal.model.CustomerBuyPlanItem
-import com.phpnuxbill.mobile.feature.portal.model.CustomerModemInfo
-import com.phpnuxbill.mobile.feature.portal.model.CustomerModemStatusResult
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPackageItem
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPortalDashboard
-import com.phpnuxbill.mobile.feature.portal.model.ModemSupportStatus
 import com.phpnuxbill.mobile.feature.portal.model.PortalPaymentGateway
 import java.text.SimpleDateFormat
 import java.util.Locale
