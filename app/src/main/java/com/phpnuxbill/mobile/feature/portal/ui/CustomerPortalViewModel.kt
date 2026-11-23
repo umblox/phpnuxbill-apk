@@ -357,6 +357,21 @@ class CustomerPortalViewModel(
     }
 
     fun openRenewForPackage(pkg: CustomerPackageItem, onFallbackToPlansTab: () -> Unit) {
+        if (pkg.planId > 0 && pkg.planEnabled && pkg.price > 0.0) {
+            val cachedMatch = (_plansState.value as? UiState.Success)?.data?.internetPlans
+                ?.find { it.id == pkg.planId }
+            val targetPlan = cachedMatch ?: CustomerBuyPlanItem(
+                id = pkg.planId,
+                namePlan = pkg.namebp,
+                price = pkg.price,
+                type = pkg.type,
+                validity = pkg.validity,
+                routers = pkg.routers
+            )
+            openCheckoutForPlan(targetPlan)
+            return
+        }
+
         viewModelScope.launch {
             var plans = (_plansState.value as? UiState.Success)?.data
             if (plans == null) {
@@ -366,16 +381,19 @@ class CustomerPortalViewModel(
                         _plansState.value = UiState.Success(res.data)
                     }
                     is ApiResult.Error -> {
+                        _bannerMessage.value = res.message
                         onFallbackToPlansTab()
                         return@launch
                     }
                 }
             }
-            val matched = plans.internetPlans.find { it.id == pkg.planId }
+            val matched = plans.internetPlans.find { it.id == pkg.planId && pkg.planId > 0 }
                 ?: plans.internetPlans.find { it.namePlan.equals(pkg.namebp, ignoreCase = true) }
+
             if (matched != null) {
                 openCheckoutForPlan(matched)
             } else {
+                _bannerMessage.value = "Paket ${pkg.namebp} sudah tidak aktif di katalog. Silakan pilih paket lain."
                 onFallbackToPlansTab()
             }
         }
