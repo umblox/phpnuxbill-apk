@@ -7,11 +7,13 @@ import com.phpnuxbill.mobile.core.datastore.SessionStorage
 import com.phpnuxbill.mobile.core.model.ApiResult
 import com.phpnuxbill.mobile.core.model.UiState
 import com.phpnuxbill.mobile.feature.portal.data.CustomerPortalRepository
+import com.phpnuxbill.mobile.feature.portal.model.CustomerBillItem
 import com.phpnuxbill.mobile.feature.portal.model.CustomerBuyPlanItem
 import com.phpnuxbill.mobile.feature.portal.model.CustomerModemInfo
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPlansData
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPortalDashboard
 import com.phpnuxbill.mobile.feature.portal.model.CustomerTransactionItem
+import com.phpnuxbill.mobile.feature.portal.model.PortalPaymentGateway
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,7 +45,13 @@ class CustomerPortalViewModel(
     private val _checkoutPlan = MutableStateFlow<CustomerBuyPlanItem?>(null)
     val checkoutPlan: StateFlow<CustomerBuyPlanItem?> = _checkoutPlan.asStateFlow()
 
-    private val _selectedGatewayId = MutableStateFlow("balance")
+    private val _activePaymentBill = MutableStateFlow<CustomerBillItem?>(null)
+    val activePaymentBill: StateFlow<CustomerBillItem?> = _activePaymentBill.asStateFlow()
+
+    private val _isCheckingPayment = MutableStateFlow(false)
+    val isCheckingPayment: StateFlow<Boolean> = _isCheckingPayment.asStateFlow()
+
+    private val _selectedGatewayId = MutableStateFlow("")
     val selectedGatewayId: StateFlow<String> = _selectedGatewayId.asStateFlow()
 
     private val _selectedChannelId = MutableStateFlow("")
@@ -66,7 +74,6 @@ class CustomerPortalViewModel(
 
     init {
         loadDashboard()
-        // Muat status modem secara paralel di belakang layar tanpa menahan Beranda
         loadModem()
     }
 
@@ -85,6 +92,15 @@ class CustomerPortalViewModel(
     fun onWifiInputsChanged(ssid: String, pass: String) {
         _wifiSsidInput.value = ssid
         _wifiPassInput.value = pass
+    }
+
+    fun openPaymentBill(bill: CustomerBillItem) {
+        _activePaymentBill.value = bill
+    }
+
+    fun closePaymentBill() {
+        _activePaymentBill.value = null
+        loadDashboard(isPullRefresh = true)
     }
 
     fun loadDashboard(isPullRefresh: Boolean = false) {
@@ -156,10 +172,7 @@ class CustomerPortalViewModel(
                         _wifiPassInput.value = modem.currentPassword
                     }
                 }
-                is ApiResult.Error -> {
-                    // Jangan jadikan error fatal jika modem belum terdaftar
-                    _modemState.value = UiState.Success(null)
-                }
+                is ApiResult.Error -> _modemState.value = UiState.Success(null)
             }
         }
     }
@@ -176,24 +189,36 @@ class CustomerPortalViewModel(
         }
     }
 
+    private fun getAvailableGateways(): List<PortalPaymentGateway> {
+        val dash = (_dashboardState.value as? UiState.Success)?.data
+        val plans = (_plansState.value as? UiState.Success)?.data
+        val raw = dash?.paymentGateways.orEmpty().ifEmpty { plans?.paymentGateways.orEmpty() }
+        return raw.filter { gw -> !gw.requiresChannel || gw.channels.isNotEmpty() }
+    }
+
     fun openCheckoutForPlan(plan: CustomerBuyPlanItem) {
         val dash = (_dashboardState.value as? UiState.Success)?.data
-        val plansData = (_plansState.value as? UiState.Success)?.data
-        val gateways = dash?.paymentGateways.orEmpty().ifEmpty { plansData?.paymentGateways.orEmpty() }
+        val gateways = getAvailableGateways()
         val isBalancePlan = plan.type.equals("Balance", true)
-        val firstPg = gateways.firstOrNull()
+        val canUseBalance = !isBalancePlan && dash?.enableBalance == true && dash.balance >= plan.price
 
         _checkoutPlan.value = plan
         _couponCodeInput.value = ""
-        if (!isBalancePlan && dash?.enableBalance == true && dash.balance >= plan.price) {
+
+        if (canUseBalance) {
             _selectedGatewayId.value = "balance"
             _selectedChannelId.value = ""
-        } else if (firstPg != null) {
-            _selectedGatewayId.value = firstPg.id
-            _selectedChannelId.value = firstPg.channels.firstOrNull()?.id.orEmpty()
         } else {
-            _selectedGatewayId.value = "balance"
-            _selectedChannelId.value = ""
+            val firstPg = gateways.firstOrNull()
+            if (firstPg != null) {
+                _selectedGatewayId.value = firstPg.id
+                _selectedChannelId.value = if (firstPg.requiresChannel) {
+                    firstPg.channels.firstOrNull { plan.price >= it.minAmount }?.id.orEmpty()
+                } else ""
+            } else {
+                _selectedGatewayId.value = ""
+                _selectedChannelId.value = ""
+            }
         }
     }
 
@@ -201,18 +226,27 @@ class CustomerPortalViewModel(
         _checkoutPlan.value = null
     }
 
-    fun selectCheckoutGateway(gwId: String, firstChannelId: String = "") {
+    fun selectCheckoutGateway(gwId: String) {
+        val plan = _checkoutPlan.value
         _selectedGatewayId.value = gwId
-        _selectedChannelId.value = firstChannelId
+        if (gwId == "balance") {
+            _selectedChannelId.value = ""
+            return
+        }
+        val pg = getAvailableGateways().find { it.id == gwId }
+        _selectedChannelId.value = if (pg != null && pg.requiresChannel) {
+            val price = plan?.price ?: 0.0
+            pg.channels.firstOrNull { price >= it.minAmount }?.id.orEmpty()
+        } else ""
     }
 
     fun selectCheckoutChannel(channelId: String) {
         _selectedChannelId.value = channelId
     }
 
-    fun confirmCheckoutOrder(onOrderCreated: () -> Unit) {
+    fun confirmCheckoutOrder(onBalancePaidSuccess: () -> Unit) {
         val plan = _checkoutPlan.value ?: return
-        if (_isSubmitting.value) return
+        if (_isSubmitting.value || _selectedGatewayId.value.isBlank()) return
         viewModelScope.launch {
             _isSubmitting.value = true
             when (
@@ -226,9 +260,18 @@ class CustomerPortalViewModel(
                 is ApiResult.Success -> {
                     _isSubmitting.value = false
                     _checkoutPlan.value = null
-                    _bannerMessage.value = res.message
-                    loadDashboard(isPullRefresh = true)
-                    onOrderCreated()
+                    val createdBill = res.data
+                    if (createdBill != null && createdBill.id > 0) {
+                        // Langsung buka Layar Pembayaran Penuh
+                        _activePaymentBill.value = createdBill
+                        loadDashboard(isPullRefresh = true)
+                    } else {
+                        // Pembayaran via Saldo (lunas instan)
+                        _bannerMessage.value = res.message
+                        loadDashboard(isPullRefresh = true)
+                        loadTransactions(isPullRefresh = true)
+                        onBalancePaidSuccess()
+                    }
                 }
                 is ApiResult.Error -> {
                     _isSubmitting.value = false
@@ -265,16 +308,31 @@ class CustomerPortalViewModel(
         }
     }
 
-    fun checkBillStatus(billId: Int) {
+    fun checkBillStatus(billId: Int, silent: Boolean = false) {
+        if (_isCheckingPayment.value) return
         viewModelScope.launch {
+            _isCheckingPayment.value = true
             when (val res = repository.checkBillStatus(billId)) {
                 is ApiResult.Success -> {
-                    _bannerMessage.value = res.message
-                    loadDashboard(isPullRefresh = true)
-                    if (res.data.first) loadTransactions(isPullRefresh = true)
+                    val (isPaid, updatedBill) = res.data
+                    if (updatedBill != null) {
+                        if (_activePaymentBill.value?.id == updatedBill.id) {
+                            _activePaymentBill.value = updatedBill
+                        }
+                    }
+                    if (isPaid) {
+                        _bannerMessage.value = res.message
+                        loadDashboard(isPullRefresh = true)
+                        loadTransactions(isPullRefresh = true)
+                    } else if (!silent) {
+                        _bannerMessage.value = res.message
+                    }
                 }
-                is ApiResult.Error -> _bannerMessage.value = res.message
+                is ApiResult.Error -> {
+                    if (!silent) _bannerMessage.value = res.message
+                }
             }
+            _isCheckingPayment.value = false
         }
     }
 
@@ -282,6 +340,9 @@ class CustomerPortalViewModel(
         viewModelScope.launch {
             when (val res = repository.cancelBill(billId)) {
                 is ApiResult.Success -> {
+                    if (_activePaymentBill.value?.id == billId) {
+                        _activePaymentBill.value = null
+                    }
                     _bannerMessage.value = res.message
                     loadDashboard(isPullRefresh = true)
                 }
