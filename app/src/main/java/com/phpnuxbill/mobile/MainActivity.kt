@@ -1,7 +1,10 @@
 package com.phpnuxbill.mobile
 
+import android.app.Activity
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
@@ -45,12 +48,14 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -153,10 +158,37 @@ private fun AuthenticatedAdminShell(
     onLogout: () -> Unit
 ) {
     val strings = LocalAppStrings.current
+    val context = LocalContext.current
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var currentDestination by remember { mutableStateOf(AdminDestination.DASHBOARD) }
     var showLogoutDialog by remember { mutableStateOf(false) }
+    var lastBackPressedAt by remember { mutableLongStateOf(0L) }
+
+    BackHandler(enabled = true) {
+        when {
+            drawerState.isOpen -> {
+                scope.launch { drawerState.close() }
+            }
+            currentDestination != AdminDestination.DASHBOARD -> {
+                currentDestination = AdminDestination.DASHBOARD
+            }
+            else -> {
+                val now = System.currentTimeMillis()
+                if (now - lastBackPressedAt <= 2000L) {
+                    (context as? Activity)?.finish()
+                } else {
+                    lastBackPressedAt = now
+                    val exitMsg = if (strings.langCode == "en") {
+                        "Press back again to exit"
+                    } else {
+                        "Tekan kembali sekali lagi untuk keluar"
+                    }
+                    Toast.makeText(context, exitMsg, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 
     val drawerItems = listOf(
         Triple(AdminDestination.DASHBOARD, strings.menuDashboard, Icons.Outlined.Dashboard),
