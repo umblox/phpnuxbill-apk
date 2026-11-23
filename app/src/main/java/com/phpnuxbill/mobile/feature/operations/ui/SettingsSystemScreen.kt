@@ -1,5 +1,6 @@
 package com.phpnuxbill.mobile.feature.operations.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -121,13 +122,17 @@ fun SettingsSystemScreen(
         viewModel.clearBanner()
     }
 
-    LaunchedEffect(selectedTab) {
-        when (selectedTab) {
-            1 -> if (notifTemplates.isEmpty()) viewModel.loadNotificationTemplates()
-            2 -> viewModel.loadStaffList()
-            3 -> viewModel.loadDbStatusAndLogs()
-        }
+LaunchedEffect(selectedTab) {
+    when (selectedTab) {
+        0 -> viewModel.ensureWebSettingsLoaded()
+        1 -> if (notifTemplates.isEmpty()) viewModel.loadNotificationTemplates()
+        2 -> viewModel.loadStaffList()
+        3 -> viewModel.loadDbStatusAndLogs()
     }
+}
+BackHandler(enabled = staffForm.isOpen) {
+    viewModel.closeStaffForm()
+}
 
     // Sub-layar penuh: Tambah / Edit Akun Staf
     if (staffForm.isOpen) {
