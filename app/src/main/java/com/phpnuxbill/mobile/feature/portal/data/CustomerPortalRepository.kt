@@ -322,6 +322,8 @@ class RemoteCustomerPortalRepository(
             currency = b.str("currency").ifBlank { "Rp." },
             gateway = b.str("gateway"),
             uiMode = b.str("ui_mode").ifBlank { "checkout_url" },
+            bankCode = b.str("bank_code"),
+            autoPoll = if (b.has("auto_poll")) b.boolVal("auto_poll") else true,
             paymentMethod = b.str("payment_method"),
             paymentChannel = b.str("payment_channel"),
             payCode = b.str("pay_code"),
