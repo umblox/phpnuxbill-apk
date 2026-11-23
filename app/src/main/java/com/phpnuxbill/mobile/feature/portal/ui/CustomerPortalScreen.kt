@@ -136,8 +136,6 @@ fun CustomerPortalScreen(
     val selectedGatewayId by viewModel.selectedGatewayId.collectAsStateWithLifecycle()
     val selectedChannelId by viewModel.selectedChannelId.collectAsStateWithLifecycle()
     val couponCode by viewModel.couponCodeInput.collectAsStateWithLifecycle()
-    val wifiSsid by viewModel.wifiSsidInput.collectAsStateWithLifecycle()
-    val wifiPass by viewModel.wifiPassInput.collectAsStateWithLifecycle()
     val isSubmitting by viewModel.isSubmitting.collectAsStateWithLifecycle()
     val bannerMessage by viewModel.bannerMessage.collectAsStateWithLifecycle()
 
@@ -683,25 +681,25 @@ fun CustomerPortalScreen(
                 // TAB 3: MODEM TR-069 (KHUSUS PPPOE & OTHERS — INFORMATIF)
                 // =============================================================
                 3 -> {
-                    when (val st = modemState) {
-                        is UiState.Idle, is UiState.Loading -> LoadingStateView()
-                        is UiState.Error -> ErrorStateView(message = st.message, onRetry = viewModel::loadModem)
-                        is UiState.Success -> {
-                            CustomerModemTabContent(
-                                result = st.data,
-                                companyPhone = activeDash?.companyPhone.orEmpty(),
-                                wifiSsid = wifiSsid,
-                                wifiPass = wifiPass,
-                                isEn = isEn,
-                                onWifiChanged = viewModel::onWifiInputsChanged,
-                                onSaveWifi = viewModel::saveWifi,
-                                onSummon = viewModel::summonModem,
-                                onReboot = viewModel::rebootModem,
-                                onReload = viewModel::loadModem
-                            )
-                        }
-                    }
-                }
+                 when (val st = modemState) {
+                     is UiState.Idle, is UiState.Loading -> LoadingStateView()
+                     is UiState.Error -> ErrorStateView(message = st.message, onRetry = viewModel::loadModem)
+                     is UiState.Success -> {
+                         CustomerModemTabContent(
+                             result = st.data,
+                             companyPhone = activeDash?.companyPhone.orEmpty(),
+                             isSubmitting = isSubmitting,
+                             isEn = isEn,
+                             onSaveWifi = { idx, ssid, pass, src, onDone ->
+                                 viewModel.saveWifi(idx, ssid, pass, src, onDone)
+                             },
+                             onSummon = viewModel::summonModem,
+                             onReboot = { onDone -> viewModel.rebootModem(onDone) },
+                             onReload = viewModel::loadModem
+                         )
+                     }
+                 }
+              }
             }
         }
     }
@@ -1140,290 +1138,6 @@ private fun ActivePackageRichCard(
                         Text(if (isEn) "Extend +${extendDays}d" else "Tenggang +${extendDays}h", maxLines = 1)
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CustomerModemTabContent(
-    result: CustomerModemStatusResult,
-    companyPhone: String,
-    wifiSsid: String,
-    wifiPass: String,
-    isEn: Boolean,
-    onWifiChanged: (String, String) -> Unit,
-    onSaveWifi: () -> Unit,
-    onSummon: () -> Unit,
-    onReboot: () -> Unit,
-    onReload: () -> Unit
-) {
-    val strings = LocalAppStrings.current
-    val context = LocalContext.current
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        when (result.status) {
-            ModemSupportStatus.SUPPORTED_ONLINE -> {
-                val modem = result.info!!
-                CustomerModemOnlineCard(
-                    modem = modem,
-                    wifiSsid = wifiSsid,
-                    wifiPass = wifiPass,
-                    isEn = isEn,
-                    onWifiChanged = onWifiChanged,
-                    onSaveWifi = onSaveWifi,
-                    onSummon = onSummon,
-                    onReboot = onReboot
-                )
-            }
-
-            ModemSupportStatus.SUPPORTED_OFFLINE -> {
-                val modem = result.info!!
-                Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Icon(Icons.Outlined.CloudOff, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                                Text(
-                                    text = if (isEn) "Modem Offline" else "Modem Sedang Offline",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.error
-                                )
-                            }
-                            StatusBadge(text = strings.offline, tone = BadgeTone.DANGER)
-                        }
-                        Text(
-                            text = "${modem.model} • SN: ${modem.serialNumber}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = "${if (isEn) "Last seen online" else "Terakhir terhubung"}: ${modem.lastInform}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = if (isEn) {
-                                "Your modem is registered but currently unreachable. Please check the power adapter and fiber/LAN cable, then tap Check Again."
-                            } else {
-                                "Modem Anda terdaftar tetapi sedang tidak terhubung ke server. Periksa adaptor listrik dan kabel fiber/LAN, lalu ketuk Cek Ulang."
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = onReload, shape = RoundedCornerShape(10.dp), modifier = Modifier.weight(1f)) {
-                                Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(if (isEn) "Check Again" else "Cek Ulang")
-                            }
-                            if (companyPhone.isNotBlank()) {
-                                OutlinedButton(
-                                    onClick = { openWhatsAppSupport(context, companyPhone) },
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text(if (isEn) "Contact CS" else "Hubungi CS")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            ModemSupportStatus.NOT_SUPPORTED_OR_UNLINKED,
-            ModemSupportStatus.SERVER_UNAVAILABLE -> {
-                Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(56.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Router,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                        Text(
-                            text = if (result.status == ModemSupportStatus.SERVER_UNAVAILABLE) {
-                                if (isEn) "Modem Management Unavailable" else "Layanan Kontrol Modem Belum Aktif"
-                            } else {
-                                if (isEn) "Router Not Linked Yet" else "Router Belum Mendukung / Belum Terhubung"
-                            },
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center
-                        )
-                        Text(
-                            text = if (result.status == ModemSupportStatus.SERVER_UNAVAILABLE) {
-                                if (isEn) {
-                                    "Remote modem management (TR-069) is currently not active on this server. Your internet service remains unaffected."
-                                } else {
-                                    "Sistem kontrol modem jarak jauh (TR-069) belum diaktifkan oleh pengelola. Koneksi internet Anda tetap berjalan normal."
-                                }
-                            } else {
-                                if (isEn) {
-                                    "Your router/ONT does not yet support TR-069 remote control or has not been linked to your account. Contact support if you need help changing WiFi settings."
-                                } else {
-                                    "Perangkat router/modem Anda saat ini belum mendukung kontrol jarak jauh (TR-069) atau belum terhubung ke akun ini. Hubungi CS jika Anda ingin dibantu mengubah nama/sandi WiFi."
-                                }
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = onReload,
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(if (isEn) "Check Again" else "Cek Ulang")
-                            }
-                            if (companyPhone.isNotBlank()) {
-                                Button(
-                                    onClick = { openWhatsAppSupport(context, companyPhone) },
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text(if (isEn) "Contact CS" else "Hubungi CS")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CustomerModemOnlineCard(
-    modem: CustomerModemInfo,
-    wifiSsid: String,
-    wifiPass: String,
-    isEn: Boolean,
-    onWifiChanged: (String, String) -> Unit,
-    onSaveWifi: () -> Unit,
-    onSummon: () -> Unit,
-    onReboot: () -> Unit
-) {
-    val strings = LocalAppStrings.current
-    ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(modem.model, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("SN: ${modem.serialNumber}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                StatusBadge(text = strings.online, tone = BadgeTone.SUCCESS)
-            }
-            Text("Uptime: ${modem.uptime} • IP: ${modem.wanIp}", style = MaterialTheme.typography.bodySmall)
-            Text(
-                text = "${if (isEn) "Last sync" else "Sinkron terakhir"}: ${modem.lastInform}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (modem.isOptical) {
-                    StatusBadge(text = "RX: ${modem.rxPower}", tone = BadgeTone.SUCCESS)
-                }
-                if (modem.temperature.isNotBlank() && modem.temperature != "N/A") {
-                    StatusBadge(text = modem.temperature, tone = BadgeTone.NEUTRAL)
-                }
-                StatusBadge(
-                    text = "${maxOf(modem.connectedDevices, modem.connectedHostsCount)} ${if (isEn) "Devices" else "Perangkat"}",
-                    tone = BadgeTone.NEUTRAL
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = onSummon, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) {
-                    Icon(Icons.Outlined.CloudSync, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Refresh")
-                }
-                OutlinedButton(onClick = onReboot, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) {
-                    Icon(Icons.Outlined.PowerSettingsNew, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Reboot")
-                }
-            }
-        }
-    }
-
-    Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(strings.wifiSettings, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            OutlinedTextField(
-                value = wifiSsid,
-                onValueChange = { onWifiChanged(it, wifiPass) },
-                label = { Text("SSID WiFi") },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = wifiPass,
-                onValueChange = { onWifiChanged(wifiSsid, it) },
-                label = { Text(if (isEn) "WiFi Password (Min 8 chars)" else "Password WiFi (Min 8 karakter)") },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Button(
-                onClick = onSaveWifi,
-                enabled = wifiSsid.isNotBlank(),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(strings.save)
             }
         }
     }
