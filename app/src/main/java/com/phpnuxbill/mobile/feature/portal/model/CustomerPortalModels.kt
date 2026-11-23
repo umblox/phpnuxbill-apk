@@ -101,23 +101,42 @@ enum class ModemSupportStatus {
     SERVER_UNAVAILABLE
 }
 
+data class CustomerConnectedHost(
+    val hostname: String,
+    val ipAddress: String,
+    val macAddress: String,
+    val interfaceType: String,
+    val signal: String = ""
+)
+
+data class CustomerWlanItem(
+    val index: Int = 1,
+    val ssid: String = "",
+    val password: String = "",
+    val enabled: Boolean = true,
+    val band: String = "2.4GHz",
+    val channel: String = "Auto",
+    val security: String = "WPA2-PSK",
+    val securityMode: String = "WPA2PSK",
+    val connectedDevices: Int = 0,
+    val source: String = "tr098"
+)
+
 data class CustomerModemInfo(
-    val deviceId: String = "",
     val online: Boolean = false,
     val model: String = "-",
-    val serialNumber: String = "-",
+    val deviceType: String = "Wireless Router",
+    val internetStatus: String = "Connected",
     val uptime: String = "-",
-    val wanIp: String = "-",
-    val temperature: String = "",
     val lastInform: String = "-",
     val isOptical: Boolean = false,
     val rxPower: String = "N/A",
+    val rxPowerStatus: String = "normal",
+    val temperature: String = "",
+    val temperatureStatus: String = "normal",
     val connectedDevices: Int = 0,
-    val wlanIndex: Int = 1,
-    val wlanSource: String = "tr098",
-    val currentSsid: String = "",
-    val currentPassword: String = "",
-    val connectedHostsCount: Int = 0
+    val connectedHosts: List<CustomerConnectedHost> = emptyList(),
+    val wlanConfigs: List<CustomerWlanItem> = emptyList()
 )
 
 data class CustomerModemStatusResult(
