@@ -175,10 +175,15 @@ fun CustomerPortalScreen(
         }
     }
 
-    // 1. LAYAR PEMBAYARAN PENUH (Tetap aktif di sini saat user pindah ke Aplikasi Bank / E-Wallet lalu kembali)
+    val activeDash = (dashboardState as? UiState.Success)?.data
+    val effectiveBrandName = activeDash?.companyName?.ifBlank { session.effectiveCompanyName }
+        ?: session.effectiveCompanyName
+
+    // 1. LAYAR PEMBAYARAN PENUH
     if (activePaymentBill != null) {
         CustomerPaymentScreen(
             bill = activePaymentBill!!,
+            brandName = effectiveBrandName,
             isChecking = isCheckingPayment,
             onCheckStatus = { silent -> viewModel.checkBillStatus(activePaymentBill!!.id, silent = silent) },
             onCancelBill = { viewModel.cancelBill(activePaymentBill!!.id) },
@@ -191,7 +196,6 @@ fun CustomerPortalScreen(
     }
 
     // 2. LAYAR CHECKOUT PINTAR (Sesuai Saldo & Gateway/Channel Aktif Admin)
-    val activeDash = (dashboardState as? UiState.Success)?.data
     val plansData = (plansState as? UiState.Success)?.data
     val mergedGateways = remember(activeDash?.paymentGateways, plansData?.paymentGateways) {
         val raw = activeDash?.paymentGateways.orEmpty().ifEmpty { plansData?.paymentGateways.orEmpty() }
