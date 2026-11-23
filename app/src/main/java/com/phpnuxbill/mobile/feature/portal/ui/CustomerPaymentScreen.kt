@@ -32,7 +32,6 @@ import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.QrCode2
-import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -82,6 +81,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun CustomerPaymentScreen(
     bill: CustomerBillItem,
+    brandName: String,
     isChecking: Boolean,
     onCheckStatus: (silent: Boolean) -> Unit,
     onCancelBill: () -> Unit,
@@ -94,13 +94,15 @@ fun CustomerPaymentScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
 
-    var hasOpenedExternalApp by remember(bill.id) { mutableStateOf(false) }
     var isSavingQr by remember { mutableStateOf(false) }
 
     val isPaid = bill.status == 2
     val isUnpaid = bill.status == 1
+    val formattedPaymentAmount = remember(bill.currency, bill.price) {
+        formatMoney(bill.currency, bill.price)
+    }
 
-    // 1. Auto-Check instan saat user kembali (ON_RESUME) dari aplikasi Bank / E-Wallet / Browser
+    // 1. Cek senyap instan saat user kembali (ON_RESUME) dari aplikasi Bank / E-Wallet / Browser
     DisposableEffect(lifecycleOwner, bill.id, isUnpaid) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME && isUnpaid) {
@@ -111,7 +113,7 @@ fun CustomerPaymentScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // 2. Auto-Polling otomatis tiap 6 detik selama status masih UNPAID (krusial utk Tripay Proxy, ViaQRIS, PayPal)
+    // 2. Polling senyap otomatis tiap 6 detik selama status UNPAID (tanpa mengedipkan tombol UI)
     LaunchedEffect(bill.id, isUnpaid, bill.autoPoll) {
         if (!isUnpaid || !bill.autoPoll) return@LaunchedEffect
         while (true) {
@@ -120,7 +122,6 @@ fun CustomerPaymentScreen(
         }
     }
 
-    // Render QR lokal/offline terlebih dahulu jika qrisString tersedia, atau dekode Base64 jika data:image
     val localQrBitmap = remember(bill.qrisString, bill.qrisImage) {
         when {
             bill.qrisString.isNotBlank() -> PaymentUtils.generateQrBitmap(bill.qrisString, 720)
@@ -140,17 +141,6 @@ fun CustomerPaymentScreen(
         title = if (isEn) "Payment #${bill.id}" else "Pembayaran #${bill.id}",
         subtitle = "${bill.gateway.uppercase()} • ${bill.paymentChannel}",
         onBack = onBackToHome,
-        actions = {
-            if (isUnpaid) {
-                IconButton(onClick = { onCheckStatus(false) }, enabled = !isChecking) {
-                    if (isChecking) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                    } else {
-                        Icon(Icons.Outlined.Refresh, contentDescription = strings.refresh)
-                    }
-                }
-            }
-        },
         bottomBar = {
             Surface(tonalElevation = 4.dp, shadowElevation = 8.dp) {
                 if (isPaid) {
@@ -219,9 +209,6 @@ fun CustomerPaymentScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // =================================================================
-            // 1. STATUS LUNAS / EXPIRED / RINGKASAN TAGIHAN
-            // =================================================================
             if (isPaid) {
                 Surface(
                     shape = RoundedCornerShape(20.dp),
@@ -254,7 +241,7 @@ fun CustomerPaymentScreen(
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                         Text(
-                            text = "${bill.planName} • ${formatMoney(bill.currency, bill.price)}",
+                            text = "${bill.planName} • $formattedPaymentAmount",
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
@@ -268,7 +255,7 @@ fun CustomerPaymentScreen(
                 return@Column
             }
 
-            // Kartu Ringkasan Tagihan (Nominal & Status Auto-Cek)
+            // 1. Kartu Ringkasan Tagihan Bersih (Tanpa spinner/banner berisik)
             Surface(
                 shape = RoundedCornerShape(18.dp),
                 color = MaterialTheme.colorScheme.surface,
@@ -311,12 +298,12 @@ fun CustomerPaymentScreen(
                     ) {
                         Column {
                             Text(
-                                text = if (isEn) "Total Amount" else "Total Bayar",
+                                text = if (isEn) "Total Amount" else "Nominal Pembayaran",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = formatMoney(bill.currency, bill.price),
+                                text = formattedPaymentAmount,
                                 style = MaterialTheme.typography.headlineSmall,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = MaterialTheme.colorScheme.primary
@@ -345,37 +332,10 @@ fun CustomerPaymentScreen(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-
-                    if (isUnpaid) {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                                Text(
-                                    text = if (hasOpenedExternalApp) {
-                                        if (isEn) "Returned to app — verifying payment automatically..." else "Kembali ke aplikasi — memeriksa status pembayaran otomatis..."
-                                    } else {
-                                        if (isEn) "Auto-checking payment every 6 seconds" else "Memantau pembayaran otomatis setiap 6 detik"
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                                )
-                            }
-                        }
-                    }
                 }
             }
 
-            // =================================================================
-            // 2. KONTEN UTAMA SESUAI UI_MODE (QRIS | VA_CODE | EWALLET/CHECKOUT)
-            // =================================================================
+            // 2. Konten Utama Sesuai UI Mode
             when (bill.uiMode) {
                 "qris" -> {
                     Surface(
@@ -393,81 +353,106 @@ fun CustomerPaymentScreen(
                                 Icon(Icons.Outlined.QrCode2, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "QRIS (${bill.paymentChannel})",
+                                    text = "QRIS • $brandName",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
 
-                            // Kanvas putih solid agar kamera scanner / galeri selalu bisa membaca QR di Dark Mode
+                            // Kanvas putih solid dengan info Brand, Paket & Nominal Bayar agar jelas saat dilihat / di-screenshot
                             Surface(
                                 shape = RoundedCornerShape(16.dp),
                                 color = Color.White,
                                 border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                                modifier = Modifier.size(260.dp)
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(12.dp),
-                                    contentAlignment = Alignment.Center
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    when {
-                                        localQrBitmap != null -> {
-                                            Image(
-                                                bitmap = localQrBitmap.asImageBitmap(),
-                                                contentDescription = "QRIS Code",
-                                                contentScale = ContentScale.Fit,
-                                                modifier = Modifier.fillMaxSize()
-                                            )
-                                        }
-                                        bill.qrisImage.isNotBlank() -> {
-                                            SubcomposeAsyncImage(
-                                                model = bill.qrisImage,
-                                                contentDescription = "QRIS Image",
-                                                contentScale = ContentScale.Fit,
-                                                modifier = Modifier.fillMaxSize(),
-                                                loading = {
-                                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                                        CircularProgressIndicator()
+                                    Box(
+                                        modifier = Modifier.size(240.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        when {
+                                            localQrBitmap != null -> {
+                                                Image(
+                                                    bitmap = localQrBitmap.asImageBitmap(),
+                                                    contentDescription = "QRIS Code",
+                                                    contentScale = ContentScale.Fit,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
+                                            }
+                                            bill.qrisImage.isNotBlank() -> {
+                                                SubcomposeAsyncImage(
+                                                    model = bill.qrisImage,
+                                                    contentDescription = "QRIS Image",
+                                                    contentScale = ContentScale.Fit,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    loading = {
+                                                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                                            CircularProgressIndicator()
+                                                        }
+                                                    },
+                                                    error = {
+                                                        Column(
+                                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                                            verticalArrangement = Arrangement.Center,
+                                                            modifier = Modifier.padding(12.dp)
+                                                        ) {
+                                                            Icon(
+                                                                Icons.Outlined.ErrorOutline,
+                                                                contentDescription = null,
+                                                                tint = Color(0xFFDC2626),
+                                                                modifier = Modifier.size(32.dp)
+                                                            )
+                                                            Spacer(modifier = Modifier.height(6.dp))
+                                                            Text(
+                                                                text = if (isEn) "Failed to load QR image" else "Gagal memuat gambar QR",
+                                                                color = Color(0xFF334155),
+                                                                style = MaterialTheme.typography.labelMedium,
+                                                                textAlign = TextAlign.Center
+                                                            )
+                                                        }
                                                     }
-                                                },
-                                                error = {
-                                                    Column(
-                                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                                        verticalArrangement = Arrangement.Center,
-                                                        modifier = Modifier.padding(12.dp)
-                                                    ) {
-                                                        Icon(
-                                                            Icons.Outlined.ErrorOutline,
-                                                            contentDescription = null,
-                                                            tint = Color(0xFFDC2626),
-                                                            modifier = Modifier.size(32.dp)
-                                                        )
-                                                        Spacer(modifier = Modifier.height(6.dp))
-                                                        Text(
-                                                            text = if (isEn) "Failed to load QR image" else "Gagal memuat gambar QR",
-                                                            color = Color(0xFF334155),
-                                                            style = MaterialTheme.typography.labelMedium,
-                                                            textAlign = TextAlign.Center
-                                                        )
-                                                    }
-                                                }
-                                            )
+                                                )
+                                            }
+                                            else -> {
+                                                Text(
+                                                    text = if (isEn) "QR Code unavailable" else "Kode QR tidak tersedia",
+                                                    color = Color(0xFF334155),
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                            }
                                         }
-                                        else -> {
-                                            Text(
-                                                text = if (isEn) "QR Code unavailable" else "Kode QR tidak tersedia",
-                                                color = Color(0xFF334155),
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                textAlign = TextAlign.Center
-                                            )
-                                        }
+                                    }
+
+                                    HorizontalDivider(color = Color(0xFFE2E8F0))
+
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Text(
+                                            text = bill.planName,
+                                            color = Color(0xFF0F172A),
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.Center
+                                        )
+                                        Text(
+                                            text = formattedPaymentAmount,
+                                            color = Color(0xFF0284C7),
+                                            style = MaterialTheme.typography.titleLarge,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            textAlign = TextAlign.Center
+                                        )
                                     }
                                 }
                             }
 
-                            // Tombol Simpan QR ke Galeri + Salin Kode QRIS / Buka Link Fallback
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -476,11 +461,14 @@ fun CustomerPaymentScreen(
                                     onClick = {
                                         scope.launch {
                                             isSavingQr = true
-                                            val res = PaymentUtils.saveQrToGallery(
+                                            val res = PaymentUtils.saveBrandedQrToGallery(
                                                 context = context,
                                                 localBitmap = localQrBitmap,
                                                 imageUrl = bill.qrisImage,
-                                                fileNamePrefix = "QRIS_TRX_${bill.id}"
+                                                brandName = brandName,
+                                                planName = bill.planName,
+                                                paymentAmountLabel = formattedPaymentAmount,
+                                                invoiceLabel = "${bill.trxInvoice} • Exp: ${bill.expiredDate}"
                                             )
                                             isSavingQr = false
                                             Toast.makeText(
@@ -509,10 +497,7 @@ fun CustomerPaymentScreen(
 
                                 if (bill.checkoutUrl.isNotBlank()) {
                                     OutlinedButton(
-                                        onClick = {
-                                            hasOpenedExternalApp = true
-                                            PaymentUtils.openExternalPaymentUrl(context, bill.checkoutUrl)
-                                        },
+                                        onClick = { PaymentUtils.openExternalPaymentUrl(context, bill.checkoutUrl) },
                                         shape = RoundedCornerShape(12.dp),
                                         modifier = Modifier.weight(1f)
                                     ) {
@@ -523,7 +508,6 @@ fun CustomerPaymentScreen(
                                 }
                             }
 
-                            // Pintasan Buka Aplikasi E-Wallet / m-Banking yang Terpasang di HP User
                             if (installedQrisApps.isNotEmpty()) {
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                                 Text(
@@ -538,10 +522,7 @@ fun CustomerPaymentScreen(
                                 ) {
                                     items(installedQrisApps, key = { it.packageName }) { app ->
                                         FilledTonalButton(
-                                            onClick = {
-                                                hasOpenedExternalApp = true
-                                                PaymentUtils.launchInstalledApp(context, app.packageName)
-                                            },
+                                            onClick = { PaymentUtils.launchInstalledApp(context, app.packageName) },
                                             shape = RoundedCornerShape(10.dp),
                                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                                         ) {
@@ -604,7 +585,6 @@ fun CustomerPaymentScreen(
                                 }
                             }
 
-                            // Tombol Buka Aplikasi Bank Otomatis (Salin VA + Langsung Buka m-Banking Terpasang)
                             if (installedTargetBank != null) {
                                 Button(
                                     onClick = {
@@ -614,7 +594,6 @@ fun CustomerPaymentScreen(
                                             if (isEn) "VA copied! Opening ${installedTargetBank.label}..." else "Nomor VA disalin! Membuka ${installedTargetBank.label}...",
                                             Toast.LENGTH_SHORT
                                         ).show()
-                                        hasOpenedExternalApp = true
                                         PaymentUtils.launchInstalledApp(context, installedTargetBank.packageName)
                                     },
                                     shape = RoundedCornerShape(12.dp),
@@ -651,10 +630,7 @@ fun CustomerPaymentScreen(
 
                             if (bill.checkoutUrl.isNotBlank()) {
                                 OutlinedButton(
-                                    onClick = {
-                                        hasOpenedExternalApp = true
-                                        PaymentUtils.openExternalPaymentUrl(context, bill.checkoutUrl)
-                                    },
+                                    onClick = { PaymentUtils.openExternalPaymentUrl(context, bill.checkoutUrl) },
                                     shape = RoundedCornerShape(12.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
@@ -668,7 +644,6 @@ fun CustomerPaymentScreen(
                 }
 
                 else -> {
-                    // Mode ewallet_link | checkout_url (DANA, OVO, ShopeePay, Xendit, PayPal, dll.)
                     Surface(
                         shape = RoundedCornerShape(18.dp),
                         color = MaterialTheme.colorScheme.surface,
@@ -681,9 +656,9 @@ fun CustomerPaymentScreen(
                         ) {
                             Text(
                                 text = if (isEn) {
-                                    "Tap the button below to continue payment in ${bill.paymentChannel}. When finished, return to this app to automatically verify your payment."
+                                    "Tap the button below to continue payment via ${bill.paymentChannel}."
                                 } else {
-                                    "Ketuk tombol di bawah untuk melanjutkan pembayaran ke ${bill.paymentChannel}. Setelah selesai bayar, kembali ke aplikasi ini agar status otomatis terverifikasi."
+                                    "Ketuk tombol di bawah untuk melanjutkan pembayaran melalui ${bill.paymentChannel}."
                                 },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -692,7 +667,6 @@ fun CustomerPaymentScreen(
                             if (bill.checkoutUrl.isNotBlank()) {
                                 Button(
                                     onClick = {
-                                        hasOpenedExternalApp = true
                                         val ok = PaymentUtils.openExternalPaymentUrl(context, bill.checkoutUrl)
                                         if (!ok) {
                                             Toast.makeText(
@@ -718,10 +692,7 @@ fun CustomerPaymentScreen(
 
                             if (installedTargetBank != null && bill.checkoutUrl.isBlank()) {
                                 FilledTonalButton(
-                                    onClick = {
-                                        hasOpenedExternalApp = true
-                                        PaymentUtils.launchInstalledApp(context, installedTargetBank.packageName)
-                                    },
+                                    onClick = { PaymentUtils.launchInstalledApp(context, installedTargetBank.packageName) },
                                     shape = RoundedCornerShape(12.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
@@ -733,9 +704,7 @@ fun CustomerPaymentScreen(
                 }
             }
 
-            // =================================================================
-            // 3. PANDUAN LANGKAH PEMBAYARAN (INSTRUCTIONS)
-            // =================================================================
+            // 3. Panduan Langkah Pembayaran
             if (bill.instructions.isNotEmpty()) {
                 Surface(
                     shape = RoundedCornerShape(18.dp),
