@@ -82,7 +82,8 @@ fun ReportsScreen(
 
     val strings = LocalAppStrings.current
     val labels = remember(strings) { OperationsLabels(strings) }
-
+    LaunchedEffect(Unit) { viewModel.ensureReportsLoaded() }
+    
     Scaffold(
         topBar = {
             TopAppBar(
@@ -328,6 +329,7 @@ fun PaymentGatewayScreen(
         snackbarHostState.showSnackbar(msg)
         viewModel.clearBanner()
     }
+    LaunchedEffect(Unit) { viewModel.ensurePgLoaded() }
 
     if (approveTarget != null) {
         val target = approveTarget!!
