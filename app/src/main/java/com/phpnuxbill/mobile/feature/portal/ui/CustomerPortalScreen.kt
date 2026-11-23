@@ -147,7 +147,7 @@ fun CustomerPortalScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     var selectedTab by remember { mutableIntStateOf(0) }
-    var orderSubTab by remember { mutableIntStateOf(0) } // 0 = Paket Internet, 1 = Isi Saldo
+    var selectedPlansCategory by remember { mutableStateOf<PlansSubCategory?>(null) }
     var showProfileScreen by remember { mutableStateOf(false) }
     var showInboxScreen by remember { mutableStateOf(false) }
     var showTransferDialog by remember { mutableStateOf(false) }
@@ -444,11 +444,11 @@ fun CustomerPortalScreen(
                                         isEn = isEn,
                                         onToggleRenewal = viewModel::toggleAutoRenewal,
                                         onQuickTopUp = {
-                                            orderSubTab = 1
+                                            selectedPlansCategory = PlansSubCategory.BALANCE
                                             selectedTab = 1
                                         },
                                         onQuickBuyPlan = {
-                                            orderSubTab = 0
+                                            selectedPlansCategory = null
                                             selectedTab = 1
                                         },
                                         onOpenTransfer = { showTransferDialog = true },
@@ -459,7 +459,7 @@ fun CustomerPortalScreen(
                                     )
                                 }
 
-                                // 4. Paket Layanan Aktif (Satu Bagian Tunggal Tanpa Duplikasi!)
+                                // 4. Paket Layanan Aktif (Satu Bagian Tunggal Tanpa Duplikasi)
                                 item(key = "active_pkg_header") {
                                     Text(
                                         text = if (isEn) "Active Subscription" else "Paket Layanan Aktif",
@@ -487,7 +487,7 @@ fun CustomerPortalScreen(
                                                 )
                                                 Button(
                                                     onClick = {
-                                                        orderSubTab = 0
+                                                        selectedPlansCategory = null
                                                         selectedTab = 1
                                                     },
                                                     shape = RoundedCornerShape(10.dp)
@@ -510,7 +510,7 @@ fun CustomerPortalScreen(
                                             extendDays = data.extendDays,
                                             onRenewClick = {
                                                 viewModel.openRenewForPackage(pkg) {
-                                                    orderSubTab = 0
+                                                    selectedPlansCategory = null
                                                     selectedTab = 1
                                                 }
                                             },
@@ -572,13 +572,11 @@ fun CustomerPortalScreen(
                                     }
                                 }
 
-                                // 6. Bantuan CS
-                                if (data.companyPhone.isNotBlank() || data.companyAddress.isNotBlank()) {
+                                // 6. Bantuan CS (Hanya tampil jika nomor CS/WA diatur Admin)
+                                if (data.companyPhone.isNotBlank()) {
                                     item(key = "support_cs") {
                                         CustomerSupportCard(
-                                            companyName = data.companyName,
                                             companyPhone = data.companyPhone,
-                                            companyAddress = data.companyAddress,
                                             isEn = isEn
                                         )
                                     }
@@ -589,15 +587,15 @@ fun CustomerPortalScreen(
                 }
 
                 // =============================================================
-                // TAB 1: PAKET / PLANS (CAROUSEL FOKUS-REDUP + LENCANA TIER)
+                // TAB 1: PAKET / PLANS (CAROUSEL FOKUS-REDUP)
                 // =============================================================
                 1 -> CustomerPlansTabContent(
                     plansState = plansState,
+                    customerServiceType = activeDash?.serviceType ?: "Others",
                     currency = activeDash?.currency ?: session.currencyCode,
                     enableBalance = activeDash?.enableBalance ?: true,
-                    orderSubTab = orderSubTab,
-                    onSubTabChange = { orderSubTab = it },
-                    isRefreshing = isRefreshing,
+                    selectedCategory = selectedPlansCategory,
+                    onCategorySelected = { selectedPlansCategory = it },
                     onRefresh = { viewModel.refreshActiveTab(1) },
                     onSelectPlan = viewModel::openCheckoutForPlan
                 )
@@ -1024,15 +1022,14 @@ private fun ActivePackageRichCard(
         }
     }
 
-    // Format sisa masa aktif yang rapi (hindari tulisan aneh seperti "Sisa 13635 Hari")
+    // Tetap tampilkan total sisa hari penuh (termasuk untuk paket ribuan hari)
     val remainingLabel = remember(daysLeft, isOn, isEn) {
         when {
             !isOn -> if (isEn) "Expired" else "Masa aktif berakhir"
             daysLeft == null -> ""
             daysLeft < 0 -> if (isEn) "Expired" else "Kedaluwarsa"
             daysLeft == 0 -> if (isEn) "Expires Today" else "Berakhir Hari Ini"
-            daysLeft <= 365 -> if (isEn) "$daysLeft Days Left" else "Sisa $daysLeft Hari"
-            else -> if (isEn) "Long-term Active" else "Aktif Jangka Panjang"
+            else -> if (isEn) "$daysLeft Days Left" else "Sisa $daysLeft Hari"
         }
     }
 
@@ -1434,9 +1431,7 @@ private fun CustomerModemOnlineCard(
 
 @Composable
 private fun CustomerSupportCard(
-    companyName: String,
     companyPhone: String,
-    companyAddress: String,
     isEn: Boolean
 ) {
     val context = LocalContext.current
@@ -1471,21 +1466,20 @@ private fun CustomerSupportCard(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = companyAddress.ifBlank { companyName },
+                    text = if (isEn) "Network or billing issues? Chat with our CS via WhatsApp"
+                    else "Kendala jaringan atau tagihan? Hubungi CS via WhatsApp",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            if (companyPhone.isNotBlank()) {
-                OutlinedButton(
-                    onClick = { openWhatsAppSupport(context, companyPhone) },
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Text(if (isEn) "Contact CS" else "Hubungi CS")
-                }
+            Button(
+                onClick = { openWhatsAppSupport(context, companyPhone) },
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Text(if (isEn) "Contact CS" else "Hubungi CS")
             }
         }
     }
