@@ -61,7 +61,6 @@ data class CustomerBuyPlanItem(
     val type: String,
     val validity: String,
     val bandwidth: String = "",
-    val isBurstSpeed: Boolean = false,
     val sharedUsers: Int = 1,
     val quotaLabel: String = "Unlimited",
     val routers: String = ""
