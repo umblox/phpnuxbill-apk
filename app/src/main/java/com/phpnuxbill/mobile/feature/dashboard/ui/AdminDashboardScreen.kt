@@ -749,13 +749,13 @@ private fun ExpiringUserCard(
 }
 
 fun formatMoney(currency: String, amount: Double): String {
-    val nf = NumberFormat.getNumberInstance(Locale("id", "ID")).apply {
+    val nf = NumberFormat.getNumberInstance(Locale.forLanguageTag("id-ID")).apply {
         maximumFractionDigits = 0
     }
     return "${currency.trim()} ${nf.format(amount)}"
 }
 
 fun formatNumber(value: Int): String {
-    val nf = NumberFormat.getNumberInstance(Locale("id", "ID"))
+    val nf = NumberFormat.getNumberInstance(Locale.forLanguageTag("id-ID"))
     return nf.format(value)
 }
