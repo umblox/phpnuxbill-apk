@@ -198,6 +198,9 @@ fun CustomerProfileScreen(
     if (showLogoutDialog) {
         AlertDialog(
             onDismissRequest = { showLogoutDialog = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
+            shape = RoundedCornerShape(22.dp),
             title = { Text(strings.logoutConfirmTitle) },
             text = { Text(strings.logoutConfirmMessage) },
             confirmButton = {
