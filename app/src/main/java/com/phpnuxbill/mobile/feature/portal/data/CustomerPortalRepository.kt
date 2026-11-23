@@ -13,11 +13,14 @@ import com.phpnuxbill.mobile.core.network.str
 import com.phpnuxbill.mobile.core.network.toStringList
 import com.phpnuxbill.mobile.feature.portal.model.CustomerBillItem
 import com.phpnuxbill.mobile.feature.portal.model.CustomerBuyPlanItem
+import com.phpnuxbill.mobile.feature.portal.model.CustomerInboxItem
 import com.phpnuxbill.mobile.feature.portal.model.CustomerModemInfo
+import com.phpnuxbill.mobile.feature.portal.model.CustomerModemStatusResult
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPackageItem
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPlansData
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPortalDashboard
 import com.phpnuxbill.mobile.feature.portal.model.CustomerTransactionItem
+import com.phpnuxbill.mobile.feature.portal.model.ModemSupportStatus
 import com.phpnuxbill.mobile.feature.portal.model.PortalGatewayChannel
 import com.phpnuxbill.mobile.feature.portal.model.PortalInstructionGroup
 import com.phpnuxbill.mobile.feature.portal.model.PortalPaymentGateway
@@ -26,7 +29,30 @@ interface CustomerPortalRepository {
     suspend fun getPortalDashboard(): ApiResult<CustomerPortalDashboard>
     suspend fun getPortalPlans(): ApiResult<CustomerPlansData>
     suspend fun getPortalTransactions(): ApiResult<List<CustomerTransactionItem>>
-    suspend fun getCustomerModem(): ApiResult<CustomerModemInfo?>
+    suspend fun getCustomerModem(): ApiResult<CustomerModemStatusResult>
+
+    suspend fun getInbox(): ApiResult<List<CustomerInboxItem>>
+    suspend fun markInboxRead(id: Int): ApiResult<String>
+    suspend fun deleteInbox(id: Int): ApiResult<String>
+
+    suspend fun transferBalance(username: String, amount: Double): ApiResult<String>
+    suspend fun sendPlanToFriend(username: String, planId: Int = 0): ApiResult<String>
+    suspend fun syncPlanToRouter(): ApiResult<String>
+    suspend fun extendExpiredPlan(rechargeId: Int): ApiResult<String>
+
+    suspend fun saveProfile(
+        fullname: String,
+        address: String,
+        phonenumber: String,
+        email: String,
+        photoBase64: String = ""
+    ): ApiResult<String>
+
+    suspend fun changePassword(
+        oldPassword: String,
+        newPassword: String,
+        confirmPassword: String
+    ): ApiResult<String>
 
     suspend fun toggleAutoRenewal(): ApiResult<String>
     suspend fun redeemVoucher(code: String): ApiResult<String>
@@ -67,6 +93,7 @@ class RemoteCustomerPortalRepository(
                     val o = el.asObjOrNull() ?: return@mapNotNull null
                     CustomerPackageItem(
                         id = o.intVal("id"),
+                        planId = o.intVal("plan_id"),
                         namebp = o.str("namebp"),
                         status = o.str("status"),
                         expiration = o.str("expiration"),
@@ -84,14 +111,26 @@ class RemoteCustomerPortalRepository(
                         companyAddress = comp.str("address"),
                         currency = comp.str("currency").ifBlank { "Rp." },
                         enableBalance = comp?.boolVal("enable_balance") ?: true,
+                        allowBalanceTransfer = comp?.boolVal("allow_balance_transfer") ?: false,
+                        minimumTransfer = comp?.doubleVal("minimum_transfer") ?: 0.0,
+                        extendExpired = comp?.boolVal("extend_expired") ?: false,
+                        extendDays = comp?.intVal("extend_days")?.takeIf { it > 0 } ?: 3,
+                        disableVoucher = comp?.boolVal("disable_voucher") ?: false,
+                        allowPhoneOtp = comp?.boolVal("allow_phone_otp") ?: false,
+                        allowEmailOtp = comp?.boolVal("allow_email_otp") ?: false,
                         customerId = cust.intVal("id"),
                         username = cust.str("username"),
                         fullname = cust.str("fullname").ifBlank { cust.str("username") },
                         customerPhone = cust.str("phonenumber"),
+                        customerEmail = cust.str("email"),
                         customerAddress = cust.str("address"),
+                        photoUrl = cust.str("photo_url"),
                         balance = cust.doubleVal("balance"),
                         serviceType = cust.str("service_type").ifBlank { "Hotspot" },
                         autoRenewal = cust.intVal("auto_renewal") == 1,
+                        extendedThisMonth = cust?.boolVal("extended_this_month") ?: false,
+                        announcement = root.str("announcement"),
+                        inboxUnreadCount = root.intVal("inbox_unread_count"),
                         paymentGateways = parseGateways(root?.getAsJsonArray("payment_gateways")),
                         activePackages = pkgs,
                         unpaidBill = parseBill(root?.get("unpaid_bill").asObjOrNull())
@@ -113,8 +152,11 @@ class RemoteCustomerPortalRepository(
                         id = o.intVal("id"),
                         namePlan = o.str("name_plan"),
                         price = o.doubleVal("price"),
+                        priceOld = o.doubleVal("price_old"),
                         type = o.str("type"),
-                        validity = o.str("validity")
+                        validity = o.str("validity"),
+                        bandwidth = o.str("bandwidth"),
+                        routers = o.str("routers")
                     )
                 }.orEmpty().sortedBy { it.price }
 
@@ -131,6 +173,7 @@ class RemoteCustomerPortalRepository(
 
                 ApiResult.Success(
                     data = CustomerPlansData(
+                        customerServiceType = pRoot.str("customer_service_type").ifBlank { "Others" },
                         internetPlans = internetPlans,
                         balancePlans = balancePlans,
                         paymentGateways = parseGateways(pRoot?.getAsJsonArray("payment_gateways"))
@@ -163,35 +206,185 @@ class RemoteCustomerPortalRepository(
         }
     }
 
-    override suspend fun getCustomerModem(): ApiResult<CustomerModemInfo?> {
+    override suspend fun getCustomerModem(): ApiResult<CustomerModemStatusResult> {
         return when (val modemRes = networkGateway.get(action = "customer_genieacs_dashboard")) {
-            is ApiResult.Error -> modemRes
+            is ApiResult.Error -> {
+                val msg = modemRes.message
+                val status = when {
+                    msg.contains("belum dikonfigurasi", ignoreCase = true) ||
+                        msg.contains("tidak tersedia", ignoreCase = true) ||
+                        msg.contains("gagal menghubungi", ignoreCase = true) -> ModemSupportStatus.SERVER_UNAVAILABLE
+                    else -> ModemSupportStatus.NOT_SUPPORTED_OR_UNLINKED
+                }
+                ApiResult.Success(
+                    data = CustomerModemStatusResult(
+                        status = status,
+                        info = null,
+                        serverMessage = msg
+                    ),
+                    message = msg
+                )
+            }
             is ApiResult.Success -> {
                 val mRoot = modemRes.data.asObjOrNull()
                 val dev = mRoot?.getAsJsonObject("device")
                 val firstWlan = mRoot?.getAsJsonArray("wlan_configs")?.firstOrNull()?.asObjOrNull()
                 val hostsCnt = mRoot?.getAsJsonArray("connected_hosts")?.size() ?: 0
-                val info = dev?.let {
-                    CustomerModemInfo(
-                        deviceId = it.str("id").ifBlank { it.str("_id") },
-                        online = it.boolVal("online"),
-                        model = "${it.str("manufacturer")} ${it.str("model")}".trim().ifBlank { "-" },
-                        serialNumber = it.str("serial_number").ifBlank { "-" },
-                        uptime = it.str("uptime").ifBlank { "-" },
-                        isOptical = it.boolVal("is_optical"),
-                        rxPower = it.str("rx_power").ifBlank { "N/A" },
-                        connectedDevices = it.intVal("connected_devices"),
+                if (dev == null) {
+                    ApiResult.Success(
+                        data = CustomerModemStatusResult(
+                            status = ModemSupportStatus.NOT_SUPPORTED_OR_UNLINKED,
+                            info = null,
+                            serverMessage = modemRes.message
+                        ),
+                        message = modemRes.message
+                    )
+                } else {
+                    val isOnline = dev.boolVal("online")
+                    val info = CustomerModemInfo(
+                        deviceId = dev.str("id").ifBlank { dev.str("_id") },
+                        online = isOnline,
+                        model = "${dev.str("manufacturer")} ${dev.str("model")}".trim().ifBlank { "-" },
+                        serialNumber = dev.str("serial_number").ifBlank { "-" },
+                        uptime = dev.str("uptime").ifBlank { "-" },
+                        wanIp = dev.str("wan_ip").ifBlank { "-" },
+                        temperature = dev.str("temperature"),
+                        lastInform = dev.str("last_inform").ifBlank { "-" },
+                        isOptical = dev.boolVal("is_optical"),
+                        rxPower = dev.str("rx_power").ifBlank { "N/A" },
+                        connectedDevices = dev.intVal("connected_devices"),
                         wlanIndex = firstWlan?.intVal("index")?.takeIf { idx -> idx > 0 } ?: 1,
                         wlanSource = firstWlan?.str("source")?.ifBlank { "tr098" } ?: "tr098",
                         currentSsid = firstWlan?.str("ssid").orEmpty(),
                         currentPassword = firstWlan?.str("password").orEmpty(),
                         connectedHostsCount = hostsCnt
                     )
+                    ApiResult.Success(
+                        data = CustomerModemStatusResult(
+                            status = if (isOnline) ModemSupportStatus.SUPPORTED_ONLINE else ModemSupportStatus.SUPPORTED_OFFLINE,
+                            info = info,
+                            serverMessage = modemRes.message
+                        ),
+                        message = modemRes.message
+                    )
                 }
-                ApiResult.Success(info, modemRes.message)
             }
         }
     }
+
+    override suspend fun getInbox(): ApiResult<List<CustomerInboxItem>> {
+        return when (val res = networkGateway.get(action = "customer_inbox")) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> {
+                val list = res.data.asArrOrNull()?.mapNotNull { el ->
+                    val o = el.asObjOrNull() ?: return@mapNotNull null
+                    CustomerInboxItem(
+                        id = o.intVal("id"),
+                        subject = o.str("subject").ifBlank { "(Tanpa Subjek)" },
+                        body = o.str("body"),
+                        from = o.str("from").ifBlank { "Admin" },
+                        dateCreated = o.str("date_created"),
+                        dateRead = o.str("date_read"),
+                        isRead = o.boolVal("is_read")
+                    )
+                }.orEmpty()
+                ApiResult.Success(list, res.message)
+            }
+        }
+    }
+
+    override suspend fun markInboxRead(id: Int): ApiResult<String> =
+        when (val res = networkGateway.postForm(action = "customer_inbox_read", fields = mapOf("id" to id.toString()))) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(res.message, res.message)
+        }
+
+    override suspend fun deleteInbox(id: Int): ApiResult<String> =
+        when (val res = networkGateway.postForm(action = "customer_inbox_delete", fields = mapOf("id" to id.toString()))) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(res.message, res.message)
+        }
+
+    override suspend fun transferBalance(username: String, amount: Double): ApiResult<String> =
+        when (
+            val res = networkGateway.postForm(
+                action = "customer_transfer_balance",
+                fields = mapOf(
+                    "username" to username.trim(),
+                    "amount" to amount.toLong().toString()
+                )
+            )
+        ) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(res.message, res.message)
+        }
+
+    override suspend fun sendPlanToFriend(username: String, planId: Int): ApiResult<String> {
+        val fields = buildMap {
+            put("username", username.trim())
+            if (planId > 0) put("plan_id", planId.toString())
+        }
+        return when (val res = networkGateway.postForm(action = "customer_send_plan", fields = fields)) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(res.message, res.message)
+        }
+    }
+
+    override suspend fun syncPlanToRouter(): ApiResult<String> =
+        when (val res = networkGateway.postForm(action = "customer_sync_plan")) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(res.message, res.message)
+        }
+
+    override suspend fun extendExpiredPlan(rechargeId: Int): ApiResult<String> =
+        when (
+            val res = networkGateway.postForm(
+                action = "customer_extend_plan",
+                fields = mapOf("id" to rechargeId.toString())
+            )
+        ) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(res.message, res.message)
+        }
+
+    override suspend fun saveProfile(
+        fullname: String,
+        address: String,
+        phonenumber: String,
+        email: String,
+        photoBase64: String
+    ): ApiResult<String> {
+        val fields = buildMap {
+            put("fullname", fullname.trim())
+            put("address", address.trim())
+            put("phonenumber", phonenumber.trim())
+            put("email", email.trim())
+            if (photoBase64.isNotBlank()) put("photo_base64", photoBase64)
+        }
+        return when (val res = networkGateway.postForm(action = "customer_profile_save", fields = fields)) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(res.message, res.message)
+        }
+    }
+
+    override suspend fun changePassword(
+        oldPassword: String,
+        newPassword: String,
+        confirmPassword: String
+    ): ApiResult<String> =
+        when (
+            val res = networkGateway.postForm(
+                action = "customer_change_password",
+                fields = mapOf(
+                    "old_password" to oldPassword,
+                    "new_password" to newPassword,
+                    "confirm_password" to confirmPassword
+                )
+            )
+        ) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(res.message, res.message)
+        }
 
     override suspend fun toggleAutoRenewal(): ApiResult<String> =
         when (val res = networkGateway.postForm(action = "toggle_renewal")) {
