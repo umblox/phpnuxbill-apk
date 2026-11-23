@@ -8,7 +8,10 @@ import com.phpnuxbill.mobile.core.model.ApiResult
 import com.phpnuxbill.mobile.core.model.UiState
 import com.phpnuxbill.mobile.feature.portal.data.CustomerPortalRepository
 import com.phpnuxbill.mobile.feature.portal.model.CustomerBuyPlanItem
+import com.phpnuxbill.mobile.feature.portal.model.CustomerModemInfo
+import com.phpnuxbill.mobile.feature.portal.model.CustomerPlansData
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPortalDashboard
+import com.phpnuxbill.mobile.feature.portal.model.CustomerTransactionItem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,8 +22,20 @@ class CustomerPortalViewModel(
     private val sessionStorage: SessionStorage
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow<UiState<CustomerPortalDashboard>>(UiState.Loading)
-    val uiState: StateFlow<UiState<CustomerPortalDashboard>> = _uiState.asStateFlow()
+    private val _dashboardState = MutableStateFlow<UiState<CustomerPortalDashboard>>(UiState.Loading)
+    val dashboardState: StateFlow<UiState<CustomerPortalDashboard>> = _dashboardState.asStateFlow()
+
+    private val _plansState = MutableStateFlow<UiState<CustomerPlansData>>(UiState.Idle)
+    val plansState: StateFlow<UiState<CustomerPlansData>> = _plansState.asStateFlow()
+
+    private val _transactionsState = MutableStateFlow<UiState<List<CustomerTransactionItem>>>(UiState.Idle)
+    val transactionsState: StateFlow<UiState<List<CustomerTransactionItem>>> = _transactionsState.asStateFlow()
+
+    private val _modemState = MutableStateFlow<UiState<CustomerModemInfo?>>(UiState.Idle)
+    val modemState: StateFlow<UiState<CustomerModemInfo?>> = _modemState.asStateFlow()
+
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
     private val _voucherCodeInput = MutableStateFlow("")
     val voucherCodeInput: StateFlow<String> = _voucherCodeInput.asStateFlow()
@@ -50,7 +65,9 @@ class CustomerPortalViewModel(
     val bannerMessage: StateFlow<String?> = _bannerMessage.asStateFlow()
 
     init {
-        loadPortal()
+        loadDashboard()
+        // Muat status modem secara paralel di belakang layar tanpa menahan Beranda
+        loadModem()
     }
 
     fun clearBanner() {
@@ -70,33 +87,105 @@ class CustomerPortalViewModel(
         _wifiPassInput.value = pass
     }
 
-    fun loadPortal() {
+    fun loadDashboard(isPullRefresh: Boolean = false) {
         viewModelScope.launch {
-            if (_uiState.value !is UiState.Success) _uiState.value = UiState.Loading
-            when (val res = repository.getPortalHome()) {
+            if (isPullRefresh) _isRefreshing.value = true
+            else if (_dashboardState.value !is UiState.Success) _dashboardState.value = UiState.Loading
+
+            when (val res = repository.getPortalDashboard()) {
+                is ApiResult.Success -> _dashboardState.value = UiState.Success(res.data)
+                is ApiResult.Error -> {
+                    if (res.isUnauthorized) sessionStorage.clearActiveToken()
+                    else if (_dashboardState.value !is UiState.Success) _dashboardState.value = UiState.Error(res.message)
+                    else _bannerMessage.value = res.message
+                }
+            }
+            _isRefreshing.value = false
+        }
+    }
+
+    fun ensurePlansLoaded() {
+        if (_plansState.value is UiState.Idle) loadPlans()
+    }
+
+    fun loadPlans(isPullRefresh: Boolean = false) {
+        viewModelScope.launch {
+            if (isPullRefresh) _isRefreshing.value = true
+            else if (_plansState.value !is UiState.Success) _plansState.value = UiState.Loading
+
+            when (val res = repository.getPortalPlans()) {
+                is ApiResult.Success -> _plansState.value = UiState.Success(res.data)
+                is ApiResult.Error -> {
+                    if (res.isUnauthorized) sessionStorage.clearActiveToken()
+                    else _plansState.value = UiState.Error(res.message)
+                }
+            }
+            _isRefreshing.value = false
+        }
+    }
+
+    fun ensureTransactionsLoaded() {
+        if (_transactionsState.value is UiState.Idle) loadTransactions()
+    }
+
+    fun loadTransactions(isPullRefresh: Boolean = false) {
+        viewModelScope.launch {
+            if (isPullRefresh) _isRefreshing.value = true
+            else if (_transactionsState.value !is UiState.Success) _transactionsState.value = UiState.Loading
+
+            when (val res = repository.getPortalTransactions()) {
+                is ApiResult.Success -> _transactionsState.value = UiState.Success(res.data)
+                is ApiResult.Error -> {
+                    if (res.isUnauthorized) sessionStorage.clearActiveToken()
+                    else _transactionsState.value = UiState.Error(res.message)
+                }
+            }
+            _isRefreshing.value = false
+        }
+    }
+
+    fun loadModem() {
+        viewModelScope.launch {
+            if (_modemState.value !is UiState.Success) _modemState.value = UiState.Loading
+            when (val res = repository.getCustomerModem()) {
                 is ApiResult.Success -> {
-                    _uiState.value = UiState.Success(res.data)
-                    val modem = res.data.modemInfo
+                    _modemState.value = UiState.Success(res.data)
+                    val modem = res.data
                     if (modem != null && _wifiSsidInput.value.isBlank()) {
                         _wifiSsidInput.value = modem.currentSsid
                         _wifiPassInput.value = modem.currentPassword
                     }
                 }
                 is ApiResult.Error -> {
-                    if (res.isUnauthorized) sessionStorage.clearActiveToken()
-                    else _uiState.value = UiState.Error(res.message)
+                    // Jangan jadikan error fatal jika modem belum terdaftar
+                    _modemState.value = UiState.Success(null)
                 }
             }
         }
     }
 
+    fun refreshActiveTab(tabIndex: Int) {
+        when (tabIndex) {
+            0 -> {
+                loadDashboard(isPullRefresh = true)
+                loadModem()
+            }
+            1 -> loadPlans(isPullRefresh = true)
+            2 -> loadTransactions(isPullRefresh = true)
+            3 -> loadModem()
+        }
+    }
+
     fun openCheckoutForPlan(plan: CustomerBuyPlanItem) {
-        val data = (_uiState.value as? UiState.Success)?.data
+        val dash = (_dashboardState.value as? UiState.Success)?.data
+        val plansData = (_plansState.value as? UiState.Success)?.data
+        val gateways = dash?.paymentGateways.orEmpty().ifEmpty { plansData?.paymentGateways.orEmpty() }
         val isBalancePlan = plan.type.equals("Balance", true)
-        val firstPg = data?.paymentGateways?.firstOrNull()
+        val firstPg = gateways.firstOrNull()
+
         _checkoutPlan.value = plan
         _couponCodeInput.value = ""
-        if (!isBalancePlan && data?.enableBalance == true && (data.balance >= plan.price)) {
+        if (!isBalancePlan && dash?.enableBalance == true && dash.balance >= plan.price) {
             _selectedGatewayId.value = "balance"
             _selectedChannelId.value = ""
         } else if (firstPg != null) {
@@ -121,7 +210,7 @@ class CustomerPortalViewModel(
         _selectedChannelId.value = channelId
     }
 
-    fun confirmCheckoutOrder() {
+    fun confirmCheckoutOrder(onOrderCreated: () -> Unit) {
         val plan = _checkoutPlan.value ?: return
         if (_isSubmitting.value) return
         viewModelScope.launch {
@@ -138,7 +227,8 @@ class CustomerPortalViewModel(
                     _isSubmitting.value = false
                     _checkoutPlan.value = null
                     _bannerMessage.value = res.message
-                    loadPortal()
+                    loadDashboard(isPullRefresh = true)
+                    onOrderCreated()
                 }
                 is ApiResult.Error -> {
                     _isSubmitting.value = false
@@ -153,7 +243,7 @@ class CustomerPortalViewModel(
             when (val res = repository.toggleAutoRenewal()) {
                 is ApiResult.Success -> {
                     _bannerMessage.value = res.message
-                    loadPortal()
+                    loadDashboard(isPullRefresh = true)
                 }
                 is ApiResult.Error -> _bannerMessage.value = res.message
             }
@@ -168,7 +258,7 @@ class CustomerPortalViewModel(
                 is ApiResult.Success -> {
                     _voucherCodeInput.value = ""
                     _bannerMessage.value = res.message
-                    loadPortal()
+                    loadDashboard(isPullRefresh = true)
                 }
                 is ApiResult.Error -> _bannerMessage.value = res.message
             }
@@ -180,7 +270,8 @@ class CustomerPortalViewModel(
             when (val res = repository.checkBillStatus(billId)) {
                 is ApiResult.Success -> {
                     _bannerMessage.value = res.message
-                    loadPortal()
+                    loadDashboard(isPullRefresh = true)
+                    if (res.data.first) loadTransactions(isPullRefresh = true)
                 }
                 is ApiResult.Error -> _bannerMessage.value = res.message
             }
@@ -192,7 +283,7 @@ class CustomerPortalViewModel(
             when (val res = repository.cancelBill(billId)) {
                 is ApiResult.Success -> {
                     _bannerMessage.value = res.message
-                    loadPortal()
+                    loadDashboard(isPullRefresh = true)
                 }
                 is ApiResult.Error -> _bannerMessage.value = res.message
             }
@@ -200,8 +291,7 @@ class CustomerPortalViewModel(
     }
 
     fun saveWifi() {
-        val data = (_uiState.value as? UiState.Success)?.data
-        val modem = data?.modemInfo
+        val modem = (_modemState.value as? UiState.Success)?.data
         val ssid = _wifiSsidInput.value.trim()
         if (ssid.isBlank()) return
         viewModelScope.launch {
@@ -216,7 +306,7 @@ class CustomerPortalViewModel(
             ) {
                 is ApiResult.Success -> {
                     _bannerMessage.value = res.message
-                    loadPortal()
+                    loadModem()
                 }
                 is ApiResult.Error -> _bannerMessage.value = res.message
             }
@@ -224,7 +314,7 @@ class CustomerPortalViewModel(
     }
 
     fun rebootModem() {
-        val deviceId = (_uiState.value as? UiState.Success)?.data?.modemInfo?.deviceId.orEmpty()
+        val deviceId = (_modemState.value as? UiState.Success)?.data?.deviceId.orEmpty()
         viewModelScope.launch {
             when (val res = repository.rebootCustomerModem(deviceId)) {
                 is ApiResult.Success -> _bannerMessage.value = res.message
@@ -234,12 +324,12 @@ class CustomerPortalViewModel(
     }
 
     fun summonModem() {
-        val deviceId = (_uiState.value as? UiState.Success)?.data?.modemInfo?.deviceId.orEmpty()
+        val deviceId = (_modemState.value as? UiState.Success)?.data?.deviceId.orEmpty()
         viewModelScope.launch {
             when (val res = repository.summonCustomerModem(deviceId)) {
                 is ApiResult.Success -> {
                     _bannerMessage.value = res.message
-                    loadPortal()
+                    loadModem()
                 }
                 is ApiResult.Error -> _bannerMessage.value = res.message
             }
