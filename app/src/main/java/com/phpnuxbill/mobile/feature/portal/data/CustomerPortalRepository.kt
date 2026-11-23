@@ -22,6 +22,7 @@ import com.phpnuxbill.mobile.feature.portal.model.CustomerPlansData
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPortalDashboard
 import com.phpnuxbill.mobile.feature.portal.model.CustomerTransactionItem
 import com.phpnuxbill.mobile.feature.portal.model.CustomerWlanItem
+import com.phpnuxbill.mobile.feature.portal.model.FriendPlanLookupResult
 import com.phpnuxbill.mobile.feature.portal.model.ModemSupportStatus
 import com.phpnuxbill.mobile.feature.portal.model.PortalGatewayChannel
 import com.phpnuxbill.mobile.feature.portal.model.PortalInstructionGroup
@@ -41,7 +42,8 @@ interface CustomerPortalRepository {
     suspend fun sendPlanToFriend(username: String, planId: Int = 0): ApiResult<String>
     suspend fun syncPlanToRouter(): ApiResult<String>
     suspend fun extendExpiredPlan(rechargeId: Int): ApiResult<String>
-
+    suspend fun lookupFriendForPlan(username: String): ApiResult<FriendPlanLookupResult>
+    
     suspend fun saveProfile(
         fullname: String,
         address: String,
@@ -355,6 +357,56 @@ class RemoteCustomerPortalRepository(
             is ApiResult.Success -> ApiResult.Success(res.message, res.message)
         }
 
+        override suspend fun lookupFriendForPlan(username: String): ApiResult<FriendPlanLookupResult> {
+    return when (
+        val res = networkGateway.get(
+            action = "customer_lookup_friend",
+            params = mapOf("username" to username.trim())
+        )
+    ) {
+        is ApiResult.Error -> res
+        is ApiResult.Success -> {
+            val root = res.data.asObjOrNull()
+                ?: return ApiResult.Error("Format respons server tidak valid.")
+            fun parseFriendPlan(o: JsonObject?): CustomerBuyPlanItem? {
+                if (o == null || o.intVal("id") <= 0) return null
+                return CustomerBuyPlanItem(
+                    id = o.intVal("id"),
+                    namePlan = o.str("name_plan"),
+                    price = o.doubleVal("price"),
+                    priceOld = o.doubleVal("price_old"),
+                    type = o.str("type"),
+                    validity = o.str("validity"),
+                    bandwidth = o.str("bandwidth"),
+                    sharedUsers = o.intVal("shared_users").coerceAtLeast(1),
+                    quotaLabel = o.str("quota_label").ifBlank { "Unlimited" },
+                    routers = o.str("routers")
+                )
+            }
+            val lastPlan = parseFriendPlan(root.get("last_plan").asObjOrNull())
+            val eligible = root.getAsJsonArray("eligible_plans")
+                ?.mapNotNull { parseFriendPlan(it.asObjOrNull()) }
+                .orEmpty()
+                .sortedBy { it.price }
+
+            ApiResult.Success(
+                data = FriendPlanLookupResult(
+                    username = root.str("username"),
+                    fullname = root.str("fullname").ifBlank { root.str("username") },
+                    serviceType = root.str("service_type").ifBlank { "Others" },
+                    hasActivePlan = root.boolVal("has_active_plan"),
+                    activePlanId = root.intVal("active_plan_id"),
+                    activePlanName = root.str("active_plan_name"),
+                    activeExpiration = root.str("active_expiration"),
+                    lastPlan = lastPlan,
+                    eligiblePlans = eligible
+                ),
+                message = res.message
+            )
+        }
+    }
+}
+        
     override suspend fun sendPlanToFriend(username: String, planId: Int): ApiResult<String> {
         val fields = buildMap {
             put("username", username.trim())
