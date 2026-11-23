@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -15,7 +16,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -61,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
 import com.phpnuxbill.mobile.core.i18n.LocalAppStrings
@@ -116,10 +117,6 @@ fun CustomerPlansTabContent(
             }
             val balancePlans = data.balancePlans
 
-            // Sub-tab otomatis sesuai tipe akun:
-            // - Hotspot -> [Hotspot, Saldo]
-            // - PPPoE   -> [PPPoE, Saldo]
-            // - Others  -> [Hotspot, PPPoE, Saldo]
             val availableTabs = remember(effectiveType, enableBalance, hotspotPlans.size, pppoePlans.size, balancePlans.size) {
                 buildList {
                     when (effectiveType) {
@@ -184,7 +181,6 @@ fun CustomerPlansTabContent(
                     PlansSubCategory.BALANCE -> balancePlans
                 }
 
-                // 1 Carousel Penuh Ruang (Tinggi & Terpusat seperti Referensi Pricing Table)
                 key(activeTab, currentItems.size) {
                     FullSpacePricingCarousel(
                         category = activeTab,
@@ -220,87 +216,94 @@ private fun FullSpacePricingCarousel(
         return
     }
 
-    // Jika >= 3 kartu, buka langsung di kartu ke-2 agar sisi kiri & kanan langsung mengintip rapi
+    // Jika >= 3 paket, mulai dari kartu ke-2 agar kartu kiri & kanan langsung mengintip proporsional
     val startIdx = remember(items.size) { if (items.size >= 3) 1 else 0 }
     val pagerState = rememberPagerState(initialPage = startIdx, pageCount = { items.size })
 
-    Column(
-        modifier = modifier.padding(vertical = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        HorizontalPager(
-            state = pagerState,
-            contentPadding = PaddingValues(horizontal = 52.dp),
-            pageSpacing = 12.dp,
-            verticalAlignment = Alignment.CenterVertically,
+    BoxWithConstraints(modifier = modifier) {
+        // Kartu lebih ramping (padding samping ~18% lebar layar) & lebih tinggi (~80% ruang vertikal)
+        val horizontalPeekPadding = (maxWidth * 0.175f).coerceIn(58.dp, 82.dp)
+        val targetCardHeight = (maxHeight * 0.80f).coerceIn(430.dp, 540.dp)
+
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f, fill = false)
-        ) { page ->
-            val plan = items[page]
-            val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
-                .absoluteValue
-                .coerceIn(0f, 1f)
-            val focus = 1f - pageOffset
-            val scaleXVal = lerp(0.88f, 1f, focus)
-            val scaleYVal = lerp(0.84f, 1f, focus)
-            val alphaVal = lerp(0.54f, 1f, focus)
-            val blurRadius = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                (pageOffset * 3.5f).dp
-            } else {
-                0.dp
-            }
-            val isHighlighted = pageOffset < 0.35f
-
-            val visual = remember(plan, page, items.size, category) {
-                resolveCardThemeVisual(plan, page, items.size, category)
-            }
-
-            val cardMod = Modifier
-                .fillMaxWidth()
-                .graphicsLayer {
-                    scaleX = scaleXVal
-                    scaleY = scaleYVal
-                    alpha = alphaVal
+                .fillMaxSize()
+                .padding(vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            HorizontalPager(
+                state = pagerState,
+                beyondViewportPageCount = 1,
+                contentPadding = PaddingValues(horizontal = horizontalPeekPadding),
+                pageSpacing = 10.dp,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) { page ->
+                val plan = items[page]
+                val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+                    .absoluteValue
+                    .coerceIn(0f, 1f)
+                val focus = 1f - pageOffset
+                val scaleXVal = lerp(0.92f, 1f, focus)
+                val scaleYVal = lerp(0.86f, 1f, focus)
+                val alphaVal = lerp(0.82f, 1f, focus)
+                val blurRadius = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    (pageOffset * 2.2f).dp
+                } else {
+                    0.dp
                 }
-                .let { base ->
-                    if (blurRadius > 0.dp) base.blur(blurRadius) else base
+                val isHighlighted = pageOffset < 0.35f
+
+                val visual = remember(plan, page, items.size, category) {
+                    resolveCardThemeVisual(plan, page, items.size, category)
                 }
 
-            PricingShowcaseCard(
-                plan = plan,
-                category = category,
-                visual = visual,
-                currency = currency,
-                isHighlighted = isHighlighted,
-                isEn = isEn,
-                onSelect = { onSelectPlan(plan) },
-                modifier = cardMod
-            )
-        }
+                val cardMod = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        scaleX = scaleXVal
+                        scaleY = scaleYVal
+                        alpha = alphaVal
+                    }
+                    .let { base ->
+                        if (blurRadius > 0.dp) base.blur(blurRadius) else base
+                    }
 
-        Spacer(modifier = Modifier.height(18.dp))
+                PricingShowcaseCard(
+                    plan = plan,
+                    category = category,
+                    visual = visual,
+                    currency = currency,
+                    cardHeight = targetCardHeight,
+                    isHighlighted = isHighlighted,
+                    isEn = isEn,
+                    onSelect = { onSelectPlan(plan) },
+                    modifier = cardMod
+                )
+            }
 
-        // Indikator Halaman (Titik)
-        if (items.size > 1) {
-            Row(
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                repeat(items.size) { idx ->
-                    val active = idx == pagerState.currentPage
-                    Box(
-                        modifier = Modifier
-                            .padding(horizontal = 3.5.dp)
-                            .height(7.dp)
-                            .width(if (active) 24.dp else 7.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (active) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.outlineVariant
-                            )
-                    )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (items.size > 1) {
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    repeat(items.size) { idx ->
+                        val active = idx == pagerState.currentPage
+                        Box(
+                            modifier = Modifier
+                                .padding(horizontal = 4.dp)
+                                .height(7.dp)
+                                .width(if (active) 24.dp else 7.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (active) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
+                                )
+                        )
+                    }
                 }
             }
         }
@@ -313,6 +316,7 @@ private fun PricingShowcaseCard(
     category: PlansSubCategory,
     visual: CardThemeVisual,
     currency: String,
+    cardHeight: Dp,
     isHighlighted: Boolean,
     isEn: Boolean,
     onSelect: () -> Unit,
@@ -320,8 +324,8 @@ private fun PricingShowcaseCard(
 ) {
     val isBalance = category == PlansSubCategory.BALANCE
     val titleColor = if (isHighlighted) Color.White else MaterialTheme.colorScheme.onSurface
-    val subColor = if (isHighlighted) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant
-    val dividerColor = if (isHighlighted) Color.White.copy(alpha = 0.22f) else MaterialTheme.colorScheme.outlineVariant
+    val subColor = if (isHighlighted) Color.White.copy(alpha = 0.88f) else MaterialTheme.colorScheme.onSurfaceVariant
+    val dividerColor = if (isHighlighted) Color.White.copy(alpha = 0.24f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
     val strikeColor = if (isHighlighted) Color(0xFFFDE68A) else MaterialTheme.colorScheme.error
 
     val specRows = remember(plan, category, isEn, currency) {
@@ -358,49 +362,53 @@ private fun PricingShowcaseCard(
         }
     }
 
+    // Kartu highlight = gradasi tegas; kartu samping = tint gradasi lembut bertema agar jelas mengintip di kedua sisi
+    val sideBgStart = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
+    val sideBgEnd = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f)
+
     val backgroundModifier = if (isHighlighted) {
         Modifier.background(
-            Brush.verticalGradient(
-                colors = listOf(visual.gradientStart, visual.gradientEnd)
-            )
+            Brush.verticalGradient(colors = listOf(visual.gradientStart, visual.gradientEnd))
         )
     } else {
-        Modifier.background(MaterialTheme.colorScheme.surface)
+        Modifier.background(
+            Brush.verticalGradient(colors = listOf(sideBgStart, sideBgEnd))
+        )
     }
 
     Surface(
         shape = RoundedCornerShape(26.dp),
-        color = if (isHighlighted) visual.gradientStart else MaterialTheme.colorScheme.surface,
-        shadowElevation = if (isHighlighted) 14.dp else 2.dp,
+        color = if (isHighlighted) visual.gradientStart else MaterialTheme.colorScheme.surfaceVariant,
+        shadowElevation = if (isHighlighted) 14.dp else 4.dp,
         border = if (isHighlighted) {
-            BorderStroke(1.5.dp, Color.White.copy(alpha = 0.28f))
+            BorderStroke(1.5.dp, Color.White.copy(alpha = 0.30f))
         } else {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            BorderStroke(1.2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f))
         },
         modifier = modifier
-            .heightIn(min = 395.dp)
+            .height(cardHeight)
             .clickable(onClick = onSelect)
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxSize()
                 .then(backgroundModifier)
-                .padding(horizontal = 22.dp, vertical = 26.dp),
+                .padding(horizontal = 20.dp, vertical = 26.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Bagian Atas: Ikon Tier + Nama Paket/Saldo + Harga Coret + Harga Utama
+            // Bagian Atas: Ikon + Nama Paket/Saldo + Harga Coret + Harga Utama
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(56.dp)
+                        .size(62.dp)
                         .clip(CircleShape)
                         .background(
                             if (isHighlighted) Color.White.copy(alpha = 0.18f)
-                            else MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
                         ),
                     contentAlignment = Alignment.Center
                 ) {
@@ -408,11 +416,11 @@ private fun PricingShowcaseCard(
                         imageVector = visual.icon,
                         contentDescription = null,
                         tint = if (isHighlighted) Color.White else MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(30.dp)
+                        modifier = Modifier.size(32.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
                     text = if (isBalance) {
@@ -450,9 +458,7 @@ private fun PricingShowcaseCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
-
-            // Bagian Tengah: Baris Spesifikasi dengan Garis Pemisah
+            // Bagian Tengah: Spesifikasi Paket dengan Garis Pemisah
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -467,15 +473,13 @@ private fun PricingShowcaseCard(
                         textAlign = TextAlign.Center,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(vertical = 11.dp)
+                        modifier = Modifier.padding(vertical = 12.dp)
                     )
                 }
                 HorizontalDivider(color = dividerColor, thickness = 1.dp)
             }
 
-            Spacer(modifier = Modifier.height(22.dp))
-
-            // Bagian Bawah: Tombol Aksi Penuh
+            // Bagian Bawah: Tombol Aksi
             Button(
                 onClick = onSelect,
                 shape = RoundedCornerShape(14.dp),
@@ -492,7 +496,7 @@ private fun PricingShowcaseCard(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp)
+                    .height(50.dp)
             ) {
                 Icon(
                     imageVector = if (isBalance) Icons.Outlined.AccountBalanceWallet else Icons.Outlined.ShoppingBag,
@@ -556,9 +560,9 @@ private fun resolveCardThemeVisual(
     }
 
     val palettes = listOf(
-        Color(0xFF0369A1) to BrandTeal500,    // Deep Cyan -> Teal
-        BrandBlue600 to Color(0xFF0F766E),    // Electric Cyan -> Deep Teal
-        BrandNavy900 to BrandBlue600          // Navy Slate -> Electric Cyan
+        Color(0xFF0369A1) to BrandTeal500,
+        BrandBlue600 to Color(0xFF0F766E),
+        BrandNavy900 to BrandBlue600
     )
     val (start, end) = palettes[index % palettes.size]
     return CardThemeVisual(icon = icon, gradientStart = start, gradientEnd = end)
