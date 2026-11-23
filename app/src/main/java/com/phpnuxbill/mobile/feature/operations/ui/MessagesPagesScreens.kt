@@ -1,5 +1,6 @@
 package com.phpnuxbill.mobile.feature.operations.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -89,6 +90,12 @@ fun MessagesAndPagesScreen(
         snackbarHostState.showSnackbar(msg)
         viewModel.clearBanner()
     }
+    LaunchedEffect(selectedTab) {
+    if (selectedTab == 1) viewModel.ensureStaticPagesLoaded()
+}
+BackHandler(enabled = editingPage != null) {
+    viewModel.closePageEditor()
+}
 
     // Sub-layar Editor Halaman Statis HTML (pages/*.html)
     if (editingPage != null) {
