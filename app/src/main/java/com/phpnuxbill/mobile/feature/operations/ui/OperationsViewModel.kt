@@ -130,6 +130,37 @@ class OperationsViewModel(
         _bannerMessage.value = null
     }
 
+    fun ensureReportsLoaded() {
+    if (_reportState.value is UiState.Idle) loadFinancialReports()
+}
+
+fun ensurePgLoaded() {
+    if (_pgState.value is UiState.Idle) loadPgTransactions()
+}
+
+fun ensureCouponsLoaded() {
+    if (_couponsState.value is UiState.Idle) loadCoupons()
+}
+
+fun ensureAssetsLoaded() {
+    if (_assetsState.value is UiState.Idle) loadAssets()
+}
+
+fun ensureMapLoaded() {
+    if (_mapState.value is UiState.Idle) loadNetworkMap()
+}
+
+fun ensureStaticPagesLoaded() {
+    if (_staticPagesState.value is UiState.Idle) loadStaticPages()
+}
+
+fun ensureWebSettingsLoaded() {
+    if (!webSettingsLoaded) {
+        webSettingsLoaded = true
+        loadWebSettings()
+    }
+}
+
     // -------------------------------------------------------------------------
     // LAPORAN KEUANGAN
     // -------------------------------------------------------------------------
