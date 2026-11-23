@@ -335,12 +335,7 @@ private fun PricingShowcaseCard(
         } else {
             buildList {
                 if (plan.bandwidth.isNotBlank()) {
-                    val speedText = if (plan.isBurstSpeed) {
-                        "Speed Up to ${plan.bandwidth}"
-                    } else {
-                        "Speed ${plan.bandwidth}"
-                    }
-                    add(speedText)
+                    add(plan.bandwidth)
                 }
                 if (plan.validity.isNotBlank()) {
                     add("${if (isEn) "Validity" else "Masa Aktif"}: ${plan.validity}")
@@ -362,7 +357,7 @@ private fun PricingShowcaseCard(
             }
         }
     }
-
+    
     val backgroundModifier = if (isHighlighted) {
         Modifier.background(
             Brush.verticalGradient(
