@@ -282,19 +282,25 @@ fun CustomerPortalScreen(
     }
 
     if (showSendPlanDialog && activeDash != null) {
-        SendPlanToFriendDialog(
-            currency = activeDash.currency,
-            currentBalance = activeDash.balance,
-            availablePlans = plansData?.internetPlans.orEmpty(),
-            isSubmitting = isSubmitting,
-            onDismiss = { showSendPlanDialog = false },
-            onConfirm = { friendUser, pId ->
-                viewModel.sendPlanToFriend(friendUser, pId) {
-                    showSendPlanDialog = false
-                }
+    SendPlanToFriendDialog(
+        currency = activeDash.currency,
+        currentBalance = activeDash.balance,
+        lookupState = friendLookupState,
+        isSubmitting = isSubmitting,
+        onLookupFriend = viewModel::lookupFriend,
+        onResetLookup = viewModel::resetFriendLookup,
+        onDismiss = {
+            showSendPlanDialog = false
+            viewModel.resetFriendLookup()
+        },
+        onConfirm = { friendUser, pId ->
+            viewModel.sendPlanToFriend(friendUser, pId) {
+                showSendPlanDialog = false
+                viewModel.resetFriendLookup()
             }
-        )
-    }
+        }
+    )
+}
 
     // 5. SHELL UTAMA PORTAL PELANGGAN
     Scaffold(
