@@ -13,6 +13,7 @@ import com.phpnuxbill.mobile.core.network.str
 import com.phpnuxbill.mobile.core.network.toStringList
 import com.phpnuxbill.mobile.feature.portal.model.CustomerBillItem
 import com.phpnuxbill.mobile.feature.portal.model.CustomerBuyPlanItem
+import com.phpnuxbill.mobile.feature.portal.model.CustomerConnectedHost
 import com.phpnuxbill.mobile.feature.portal.model.CustomerInboxItem
 import com.phpnuxbill.mobile.feature.portal.model.CustomerModemInfo
 import com.phpnuxbill.mobile.feature.portal.model.CustomerModemStatusResult
@@ -20,6 +21,7 @@ import com.phpnuxbill.mobile.feature.portal.model.CustomerPackageItem
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPlansData
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPortalDashboard
 import com.phpnuxbill.mobile.feature.portal.model.CustomerTransactionItem
+import com.phpnuxbill.mobile.feature.portal.model.CustomerWlanItem
 import com.phpnuxbill.mobile.feature.portal.model.ModemSupportStatus
 import com.phpnuxbill.mobile.feature.portal.model.PortalGatewayChannel
 import com.phpnuxbill.mobile.feature.portal.model.PortalInstructionGroup
@@ -66,15 +68,14 @@ interface CustomerPortalRepository {
     suspend fun checkBillStatus(billId: Int): ApiResult<Pair<Boolean, CustomerBillItem?>>
     suspend fun cancelBill(billId: Int): ApiResult<String>
     suspend fun updateCustomerWifi(
-        deviceId: String,
         wlanIndex: Int,
         ssid: String,
         password: String,
         source: String
     ): ApiResult<String>
 
-    suspend fun rebootCustomerModem(deviceId: String): ApiResult<String>
-    suspend fun summonCustomerModem(deviceId: String): ApiResult<String>
+    suspend fun rebootCustomerModem(): ApiResult<String>
+    suspend fun summonCustomerModem(): ApiResult<String>
 }
 
 class RemoteCustomerPortalRepository(
@@ -234,8 +235,6 @@ class RemoteCustomerPortalRepository(
             is ApiResult.Success -> {
                 val mRoot = modemRes.data.asObjOrNull()
                 val dev = mRoot?.getAsJsonObject("device")
-                val firstWlan = mRoot?.getAsJsonArray("wlan_configs")?.firstOrNull()?.asObjOrNull()
-                val hostsCnt = mRoot?.getAsJsonArray("connected_hosts")?.size() ?: 0
                 if (dev == null) {
                     ApiResult.Success(
                         data = CustomerModemStatusResult(
@@ -247,23 +246,54 @@ class RemoteCustomerPortalRepository(
                     )
                 } else {
                     val isOnline = dev.boolVal("online")
+                    val hosts = mRoot.getAsJsonArray("connected_hosts")?.mapNotNull { el ->
+                        val o = el.asObjOrNull() ?: return@mapNotNull null
+                        val mac = o.str("mac_address").uppercase()
+                        if (mac.startsWith("00:00:00:") || mac == "FF:FF:FF:FF:FF:FF") return@mapNotNull null
+                        CustomerConnectedHost(
+                            hostname = o.str("hostname").ifBlank { "Perangkat" },
+                            ipAddress = o.str("ip_address").ifBlank { "-" },
+                            macAddress = mac.ifBlank { "-" },
+                            interfaceType = o.str("interface_type").ifBlank { "WiFi" },
+                            signal = o.str("signal")
+                        )
+                    }.orEmpty()
+
+                    val wlans = mRoot.getAsJsonArray("wlan_configs")?.mapNotNull { el ->
+                        val o = el.asObjOrNull() ?: return@mapNotNull null
+                        CustomerWlanItem(
+                            index = o.intVal("index").takeIf { it > 0 } ?: 1,
+                            ssid = o.str("ssid"),
+                            password = o.str("password"),
+                            enabled = if (o.has("enable")) o.boolVal("enable") else true,
+                            band = o.str("band").ifBlank { "2.4GHz" },
+                            channel = o.str("channel").ifBlank { "Auto" },
+                            security = o.str("security").ifBlank { "WPA2-PSK" },
+                            securityMode = o.str("security_mode").ifBlank { "WPA2PSK" },
+                            connectedDevices = o.intVal("connected_devices"),
+                            source = o.str("source").ifBlank { "tr098" }
+                        )
+                    }.orEmpty()
+
                     val info = CustomerModemInfo(
-                        deviceId = dev.str("id").ifBlank { dev.str("_id") },
                         online = isOnline,
-                        model = "${dev.str("manufacturer")} ${dev.str("model")}".trim().ifBlank { "-" },
-                        serialNumber = dev.str("serial_number").ifBlank { "-" },
+                        model = dev.str("model").ifBlank { "-" },
+                        deviceType = dev.str("device_type").ifBlank {
+                            if (dev.boolVal("is_optical")) "Optical ONT" else "Wireless Router"
+                        },
+                        internetStatus = dev.str("internet_status").ifBlank {
+                            if (isOnline) "Connected" else "Disconnected"
+                        },
                         uptime = dev.str("uptime").ifBlank { "-" },
-                        wanIp = dev.str("wan_ip").ifBlank { "-" },
-                        temperature = dev.str("temperature"),
                         lastInform = dev.str("last_inform").ifBlank { "-" },
                         isOptical = dev.boolVal("is_optical"),
                         rxPower = dev.str("rx_power").ifBlank { "N/A" },
-                        connectedDevices = dev.intVal("connected_devices"),
-                        wlanIndex = firstWlan?.intVal("index")?.takeIf { idx -> idx > 0 } ?: 1,
-                        wlanSource = firstWlan?.str("source")?.ifBlank { "tr098" } ?: "tr098",
-                        currentSsid = firstWlan?.str("ssid").orEmpty(),
-                        currentPassword = firstWlan?.str("password").orEmpty(),
-                        connectedHostsCount = hostsCnt
+                        rxPowerStatus = dev.str("rx_power_status").ifBlank { "normal" },
+                        temperature = dev.str("temperature"),
+                        temperatureStatus = dev.str("temperature_status").ifBlank { "normal" },
+                        connectedDevices = if (hosts.isNotEmpty()) hosts.size else dev.intVal("connected_devices"),
+                        connectedHosts = hosts,
+                        wlanConfigs = wlans
                     )
                     ApiResult.Success(
                         data = CustomerModemStatusResult(
@@ -441,14 +471,12 @@ class RemoteCustomerPortalRepository(
         }
 
     override suspend fun updateCustomerWifi(
-        deviceId: String,
         wlanIndex: Int,
         ssid: String,
         password: String,
         source: String
     ): ApiResult<String> {
         val fields = buildMap {
-            if (deviceId.isNotBlank()) put("id", deviceId)
             put("wlan_index", wlanIndex.toString())
             put("ssid", ssid.trim())
             if (password.isNotBlank()) put("password", password.trim())
@@ -461,24 +489,14 @@ class RemoteCustomerPortalRepository(
         }
     }
 
-    override suspend fun rebootCustomerModem(deviceId: String): ApiResult<String> =
-        when (
-            val res = networkGateway.postForm(
-                action = "customer_genieacs_reboot",
-                fields = if (deviceId.isNotBlank()) mapOf("id" to deviceId) else emptyMap()
-            )
-        ) {
+    override suspend fun rebootCustomerModem(): ApiResult<String> =
+        when (val res = networkGateway.postForm(action = "customer_genieacs_reboot")) {
             is ApiResult.Error -> res
             is ApiResult.Success -> ApiResult.Success(res.message, res.message)
         }
 
-    override suspend fun summonCustomerModem(deviceId: String): ApiResult<String> =
-        when (
-            val res = networkGateway.postForm(
-                action = "customer_genieacs_summon",
-                fields = if (deviceId.isNotBlank()) mapOf("id" to deviceId) else emptyMap()
-            )
-        ) {
+    override suspend fun summonCustomerModem(): ApiResult<String> =
+        when (val res = networkGateway.postForm(action = "customer_genieacs_summon")) {
             is ApiResult.Error -> res
             is ApiResult.Success -> ApiResult.Success(res.message, res.message)
         }
