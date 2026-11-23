@@ -43,6 +43,7 @@ data class CustomerBillItem(
 
 data class CustomerPackageItem(
     val id: Int,
+    val planId: Int = 0,
     val namebp: String,
     val status: String,
     val expiration: String,
@@ -56,11 +57,15 @@ data class CustomerBuyPlanItem(
     val id: Int,
     val namePlan: String,
     val price: Double,
+    val priceOld: Double = 0.0,
     val type: String,
-    val validity: String
+    val validity: String,
+    val bandwidth: String = "",
+    val routers: String = ""
 )
 
 data class CustomerPlansData(
+    val customerServiceType: String = "Others",
     val internetPlans: List<CustomerBuyPlanItem> = emptyList(),
     val balancePlans: List<CustomerBuyPlanItem> = emptyList(),
     val paymentGateways: List<PortalPaymentGateway> = emptyList()
@@ -77,12 +82,32 @@ data class CustomerTransactionItem(
     val type: String
 )
 
+data class CustomerInboxItem(
+    val id: Int,
+    val subject: String,
+    val body: String,
+    val from: String,
+    val dateCreated: String,
+    val dateRead: String,
+    val isRead: Boolean
+)
+
+enum class ModemSupportStatus {
+    SUPPORTED_ONLINE,
+    SUPPORTED_OFFLINE,
+    NOT_SUPPORTED_OR_UNLINKED,
+    SERVER_UNAVAILABLE
+}
+
 data class CustomerModemInfo(
     val deviceId: String = "",
     val online: Boolean = false,
     val model: String = "-",
     val serialNumber: String = "-",
     val uptime: String = "-",
+    val wanIp: String = "-",
+    val temperature: String = "",
+    val lastInform: String = "-",
     val isOptical: Boolean = false,
     val rxPower: String = "N/A",
     val connectedDevices: Int = 0,
@@ -93,20 +118,38 @@ data class CustomerModemInfo(
     val connectedHostsCount: Int = 0
 )
 
+data class CustomerModemStatusResult(
+    val status: ModemSupportStatus = ModemSupportStatus.NOT_SUPPORTED_OR_UNLINKED,
+    val info: CustomerModemInfo? = null,
+    val serverMessage: String = ""
+)
+
 data class CustomerPortalDashboard(
     val companyName: String = "PHPNuxBill",
     val companyPhone: String = "",
     val companyAddress: String = "",
     val currency: String = "Rp.",
     val enableBalance: Boolean = true,
+    val allowBalanceTransfer: Boolean = false,
+    val minimumTransfer: Double = 0.0,
+    val extendExpired: Boolean = false,
+    val extendDays: Int = 3,
+    val disableVoucher: Boolean = false,
+    val allowPhoneOtp: Boolean = false,
+    val allowEmailOtp: Boolean = false,
     val customerId: Int = 0,
     val username: String = "",
     val fullname: String = "",
     val customerPhone: String = "",
+    val customerEmail: String = "",
     val customerAddress: String = "",
+    val photoUrl: String = "",
     val balance: Double = 0.0,
     val serviceType: String = "Hotspot",
     val autoRenewal: Boolean = false,
+    val extendedThisMonth: Boolean = false,
+    val announcement: String = "",
+    val inboxUnreadCount: Int = 0,
     val paymentGateways: List<PortalPaymentGateway> = emptyList(),
     val activePackages: List<CustomerPackageItem> = emptyList(),
     val unpaidBill: CustomerBillItem? = null
