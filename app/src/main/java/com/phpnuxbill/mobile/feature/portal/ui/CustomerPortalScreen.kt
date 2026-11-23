@@ -442,9 +442,9 @@ fun CustomerPortalScreen(
                                         },
                                         onOpenTransfer = { showTransferDialog = true },
                                         onOpenSendPlan = {
-                                            viewModel.ensurePlansLoaded()
-                                            showSendPlanDialog = true
-                                        }
+    viewModel.resetFriendLookup()
+    showSendPlanDialog = true
+}
                                     )
                                 }
 
