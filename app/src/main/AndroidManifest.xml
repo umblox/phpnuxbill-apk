@@ -30,6 +30,39 @@
         android:name="android.hardware.bluetooth"
         android:required="false" />
 
+    <queries>
+        <!-- E-Wallet & Internasional -->
+        <package android:name="id.dana" />
+        <package android:name="ovo.id" />
+        <package android:name="com.gojek.gopay" />
+        <package android:name="com.gojek.app" />
+        <package android:name="com.shopeepay.id" />
+        <package android:name="com.shopee.id" />
+        <package android:name="com.telkom.mwallet" />
+        <package android:name="com.paypal.android.p2pmobile" />
+
+        <!-- Mobile Banking Indonesia -->
+        <package android:name="com.bca" />
+        <package android:name="com.bca.mybca.omni.android" />
+        <package android:name="id.co.bri.brimo" />
+        <package android:name="id.bmri.livin" />
+        <package android:name="id.bni.wondr" />
+        <package android:name="src.com.bni" />
+        <package android:name="id.co.bankbsi.byond" />
+        <package android:name="com.bsm.activity2" />
+        <package android:name="net.myinfosys.PermataMobileX" />
+        <package android:name="id.co.cimbniaga.mobile.android" />
+        <package android:name="id.co.danamon.dbankpro" />
+        <package android:name="id.com.uiux.mobile" />
+        <package android:name="com.muamalat.din" />
+        <package android:name="com.bnc.finance" />
+
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
     <application
         android:name=".PHPNuxBillApp"
         android:allowBackup="true"
