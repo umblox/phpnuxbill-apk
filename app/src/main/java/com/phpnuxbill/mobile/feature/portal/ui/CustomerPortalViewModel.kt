@@ -16,6 +16,7 @@ import com.phpnuxbill.mobile.feature.portal.model.CustomerPackageItem
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPlansData
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPortalDashboard
 import com.phpnuxbill.mobile.feature.portal.model.CustomerTransactionItem
+import com.phpnuxbill.mobile.feature.portal.model.FriendPlanLookupResult
 import com.phpnuxbill.mobile.feature.portal.model.PortalPaymentGateway
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -72,6 +73,9 @@ class CustomerPortalViewModel(
 
     private val _bannerMessage = MutableStateFlow<String?>(null)
     val bannerMessage: StateFlow<String?> = _bannerMessage.asStateFlow()
+
+    private val _friendLookupState = MutableStateFlow<UiState<FriendPlanLookupResult>>(UiState.Idle)
+    val friendLookupState: StateFlow<UiState<FriendPlanLookupResult>> = _friendLookupState.asStateFlow()
 
     init {
         loadDashboard()
@@ -241,6 +245,22 @@ class CustomerPortalViewModel(
             }
         }
     }
+
+    fun resetFriendLookup() {
+    _friendLookupState.value = UiState.Idle
+}
+
+fun lookupFriend(username: String) {
+    val clean = username.trim()
+    if (clean.isBlank()) return
+    viewModelScope.launch {
+        _friendLookupState.value = UiState.Loading
+        when (val res = repository.lookupFriendForPlan(clean)) {
+            is ApiResult.Success -> _friendLookupState.value = UiState.Success(res.data)
+            is ApiResult.Error -> _friendLookupState.value = UiState.Error(res.message)
+        }
+    }
+}
 
     fun sendPlanToFriend(username: String, planId: Int, onSuccess: () -> Unit) {
         if (_isSubmitting.value) return
