@@ -156,7 +156,6 @@ class RemoteCustomerPortalRepository(
                         type = o.str("type"),
                         validity = o.str("validity"),
                         bandwidth = o.str("bandwidth"),
-                        isBurstSpeed = o.boolVal("is_burst_speed"),
                         sharedUsers = o.intVal("shared_users").coerceAtLeast(1),
                         quotaLabel = o.str("quota_label").ifBlank { "Unlimited" },
                         routers = o.str("routers")
