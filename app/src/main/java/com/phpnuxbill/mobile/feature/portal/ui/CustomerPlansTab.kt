@@ -49,6 +49,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -74,6 +75,7 @@ import com.phpnuxbill.mobile.core.ui.theme.BrandTeal500
 import com.phpnuxbill.mobile.feature.dashboard.ui.formatMoney
 import com.phpnuxbill.mobile.feature.portal.model.CustomerBuyPlanItem
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPlansData
+import kotlinx.coroutines.launch
 import kotlin.math.absoluteValue
 
 enum class PlansSubCategory {
@@ -219,7 +221,8 @@ private fun FullSpacePricingCarousel(
     // Jika >= 3 paket, mulai dari kartu ke-2 agar kartu kiri & kanan langsung mengintip proporsional
     val startIdx = remember(items.size) { if (items.size >= 3) 1 else 0 }
     val pagerState = rememberPagerState(initialPage = startIdx, pageCount = { items.size })
-
+    val scope = rememberCoroutineScope()
+    
     BoxWithConstraints(modifier = modifier) {
         // Kartu lebih ramping (padding samping ~18% lebar layar) & lebih tinggi (~80% ruang vertikal)
         val horizontalPeekPadding = (maxWidth * 0.175f).coerceIn(58.dp, 82.dp)
@@ -271,16 +274,21 @@ private fun FullSpacePricingCarousel(
                     }
 
                 PricingShowcaseCard(
-                    plan = plan,
-                    category = category,
-                    visual = visual,
-                    currency = currency,
-                    cardHeight = targetCardHeight,
-                    isHighlighted = isHighlighted,
-                    isEn = isEn,
-                    onSelect = { onSelectPlan(plan) },
-                    modifier = cardMod
-                )
+    plan = plan,
+    category = category,
+    visual = visual,
+    currency = currency,
+    cardHeight = targetCardHeight,
+    isHighlighted = isHighlighted,
+    isEn = isEn,
+    onSelect = { onSelectPlan(plan) },
+    onFocusCard = {
+        scope.launch {
+            pagerState.animateScrollToPage(page)
+        }
+    },
+    modifier = cardMod
+)
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -320,6 +328,7 @@ private fun PricingShowcaseCard(
     isHighlighted: Boolean,
     isEn: Boolean,
     onSelect: () -> Unit,
+    onFocusCard: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val isBalance = category == PlansSubCategory.BALANCE
@@ -386,8 +395,10 @@ private fun PricingShowcaseCard(
             BorderStroke(1.2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f))
         },
         modifier = modifier
-            .height(cardHeight)
-            .clickable(onClick = onSelect)
+    .height(cardHeight)
+    .let { base ->
+        if (!isHighlighted) base.clickable(onClick = onFocusCard) else base
+    }
     ) {
         Column(
             modifier = Modifier
@@ -481,7 +492,7 @@ private fun PricingShowcaseCard(
 
             // Bagian Bawah: Tombol Aksi
             Button(
-                onClick = onSelect,
+                onClick = if (isHighlighted) onSelect else onFocusCard,
                 shape = RoundedCornerShape(14.dp),
                 colors = if (isHighlighted) {
                     ButtonDefaults.buttonColors(
