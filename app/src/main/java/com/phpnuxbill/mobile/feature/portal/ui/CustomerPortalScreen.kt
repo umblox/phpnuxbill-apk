@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -33,9 +32,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.AddCard
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.CloudSync
 import androidx.compose.material.icons.outlined.ConfirmationNumber
-import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Payments
 import androidx.compose.material.icons.outlined.PowerSettingsNew
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Refresh
@@ -50,7 +50,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -59,6 +58,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -81,18 +81,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil.compose.AsyncImage
 import com.phpnuxbill.mobile.core.i18n.LocalAppStrings
 import com.phpnuxbill.mobile.core.model.SessionState
 import com.phpnuxbill.mobile.core.model.UiState
@@ -127,6 +123,8 @@ fun CustomerPortalScreen(
 
     val voucherCode by viewModel.voucherCodeInput.collectAsStateWithLifecycle()
     val checkoutPlan by viewModel.checkoutPlan.collectAsStateWithLifecycle()
+    val activePaymentBill by viewModel.activePaymentBill.collectAsStateWithLifecycle()
+    val isCheckingPayment by viewModel.isCheckingPayment.collectAsStateWithLifecycle()
     val selectedGatewayId by viewModel.selectedGatewayId.collectAsStateWithLifecycle()
     val selectedChannelId by viewModel.selectedChannelId.collectAsStateWithLifecycle()
     val couponCode by viewModel.couponCodeInput.collectAsStateWithLifecycle()
@@ -141,7 +139,7 @@ fun CustomerPortalScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     var selectedTab by remember { mutableIntStateOf(0) }
-    var orderSubTab by remember { mutableIntStateOf(0) } // 0 = Paket Internet, 1 = Top-Up Saldo
+    var orderSubTab by remember { mutableIntStateOf(0) } // 0 = Paket Internet, 1 = Isi Saldo
     var lastBackPressedAt by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(selectedTab) {
@@ -158,9 +156,10 @@ fun CustomerPortalScreen(
         viewModel.clearBanner()
     }
 
-    // BackHandler berjenjang: Checkout -> Tutup; Tab != Home -> Home; Home -> Double-back keluar
+    // BackHandler berjenjang: Payment Screen -> Tutup; Checkout -> Tutup; Tab != Home -> Home; Home -> Double-back keluar
     BackHandler(enabled = true) {
         when {
+            activePaymentBill != null -> viewModel.closePaymentBill()
             checkoutPlan != null -> viewModel.closeCheckout()
             selectedTab != 0 -> selectedTab = 0
             else -> {
@@ -176,9 +175,28 @@ fun CustomerPortalScreen(
         }
     }
 
+    // 1. LAYAR PEMBAYARAN PENUH (Tetap aktif di sini saat user pindah ke Aplikasi Bank / E-Wallet lalu kembali)
+    if (activePaymentBill != null) {
+        CustomerPaymentScreen(
+            bill = activePaymentBill!!,
+            isChecking = isCheckingPayment,
+            onCheckStatus = { silent -> viewModel.checkBillStatus(activePaymentBill!!.id, silent = silent) },
+            onCancelBill = { viewModel.cancelBill(activePaymentBill!!.id) },
+            onBackToHome = {
+                viewModel.closePaymentBill()
+                selectedTab = 0
+            }
+        )
+        return
+    }
+
+    // 2. LAYAR CHECKOUT PINTAR (Sesuai Saldo & Gateway/Channel Aktif Admin)
     val activeDash = (dashboardState as? UiState.Success)?.data
     val plansData = (plansState as? UiState.Success)?.data
-    val mergedGateways = activeDash?.paymentGateways.orEmpty().ifEmpty { plansData?.paymentGateways.orEmpty() }
+    val mergedGateways = remember(activeDash?.paymentGateways, plansData?.paymentGateways) {
+        val raw = activeDash?.paymentGateways.orEmpty().ifEmpty { plansData?.paymentGateways.orEmpty() }
+        raw.filter { gw -> !gw.requiresChannel || gw.channels.isNotEmpty() }
+    }
 
     if (checkoutPlan != null && activeDash != null) {
         FullScreenCustomerCheckout(
@@ -193,13 +211,14 @@ fun CustomerPortalScreen(
             onSelectChannel = viewModel::selectCheckoutChannel,
             onCouponChanged = viewModel::onCouponCodeChanged,
             onConfirm = {
-                viewModel.confirmCheckoutOrder(onOrderCreated = { selectedTab = 0 })
+                viewModel.confirmCheckoutOrder(onBalancePaidSuccess = { selectedTab = 0 })
             },
             onClose = viewModel::closeCheckout
         )
         return
     }
 
+    // 3. SHELL UTAMA PORTAL PELANGGAN
     Scaffold(
         topBar = {
             TopAppBar(
@@ -258,7 +277,6 @@ fun CustomerPortalScreen(
                 if (isEn) "History" else "Riwayat",
                 if (isEn) "Modem" else "Modem"
             )
-            // PrimaryTabRow memenuhi 100% lebar layar tanpa celah kosong di sisi kanan
             PrimaryTabRow(
                 selectedTabIndex = selectedTab,
                 containerColor = MaterialTheme.colorScheme.surface
@@ -273,9 +291,7 @@ fun CustomerPortalScreen(
             }
 
             when (selectedTab) {
-                // =============================================================
-                // TAB 0: BERANDA PELANGGAN (ESTETIK & INFORMATIF)
-                // =============================================================
+                // TAB 0: BERANDA PELANGGAN
                 0 -> when (val st = dashboardState) {
                     is UiState.Idle, is UiState.Loading -> LoadingStateView()
                     is UiState.Error -> ErrorStateView(message = st.message, onRetry = { viewModel.loadDashboard() })
@@ -294,7 +310,18 @@ fun CustomerPortalScreen(
                                 contentPadding = PaddingValues(16.dp),
                                 verticalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                // 1. Hero Wallet & Profil Card
+                                // Banner Tagihan Tertunda -> Ketuk langsung buka Layar Pembayaran Penuh
+                                if (data.unpaidBill != null) {
+                                    item {
+                                        UnpaidBillSummaryBanner(
+                                            bill = data.unpaidBill,
+                                            isEn = isEn,
+                                            onOpenPayment = { viewModel.openPaymentBill(data.unpaidBill) }
+                                        )
+                                    }
+                                }
+
+                                // Hero Wallet & Profil Card
                                 item {
                                     CustomerHeroWalletCard(
                                         data = data,
@@ -311,7 +338,7 @@ fun CustomerPortalScreen(
                                     )
                                 }
 
-                                // 2. Quick Insights 2 Kolom (Sisa Masa Aktif + Status Modem)
+                                // Ringkasan Cepat 2 Kolom
                                 item {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -373,18 +400,7 @@ fun CustomerPortalScreen(
                                     }
                                 }
 
-                                // 3. Tagihan Tertunda (Unpaid Bill)
-                                if (data.unpaidBill != null) {
-                                    item {
-                                        UnpaidBillDetailCard(
-                                            bill = data.unpaidBill,
-                                            onCheckStatus = { viewModel.checkBillStatus(data.unpaidBill.id) },
-                                            onCancel = { viewModel.cancelBill(data.unpaidBill.id) }
-                                        )
-                                    }
-                                }
-
-                                // 4. Daftar Paket Aktif Lengkap
+                                // Daftar Paket Aktif
                                 item {
                                     Text(
                                         text = if (isEn) "Active Subscription" else "Paket Layanan Aktif",
@@ -435,7 +451,7 @@ fun CustomerPortalScreen(
                                     }
                                 }
 
-                                // 5. Kartu Aktivasi Voucher Mandiri
+                                // Aktivasi Voucher
                                 item {
                                     Surface(
                                         shape = RoundedCornerShape(16.dp),
@@ -485,7 +501,7 @@ fun CustomerPortalScreen(
                                     }
                                 }
 
-                                // 6. Kartu Layanan & Bantuan CS
+                                // Kartu Bantuan CS
                                 if (data.companyPhone.isNotBlank() || data.companyAddress.isNotBlank()) {
                                     item {
                                         CustomerSupportCard(
@@ -501,9 +517,7 @@ fun CustomerPortalScreen(
                     }
                 }
 
-                // =============================================================
-                // TAB 1: BELANJA (DIPISAH TEGAS: PAKET INTERNET VS TOP-UP SALDO)
-                // =============================================================
+                // TAB 1: BELANJA (PAKET INTERNET VS ISI SALDO GRID 2 KOLOM)
                 1 -> {
                     val currency = activeDash?.currency ?: session.currencyCode
                     Column(modifier = Modifier.fillMaxSize()) {
@@ -550,10 +564,7 @@ fun CustomerPortalScreen(
                                         ) {
                                             if (inetPlans.isEmpty()) {
                                                 item {
-                                                    Text(
-                                                        text = strings.noData,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
+                                                    Text(strings.noData, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                                 }
                                             } else {
                                                 items(inetPlans, key = { "inet_${it.id}" }) { plan ->
@@ -583,10 +594,7 @@ fun CustomerPortalScreen(
                                             }
                                             if (balRows.isEmpty()) {
                                                 item {
-                                                    Text(
-                                                        text = strings.noData,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
+                                                    Text(strings.noData, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                                 }
                                             } else {
                                                 items(balRows) { pair ->
@@ -617,9 +625,7 @@ fun CustomerPortalScreen(
                     }
                 }
 
-                // =============================================================
                 // TAB 2: RIWAYAT TRANSAKSI
-                // =============================================================
                 2 -> {
                     val currency = activeDash?.currency ?: session.currencyCode
                     when (val st = transactionsState) {
@@ -696,9 +702,7 @@ fun CustomerPortalScreen(
                     }
                 }
 
-                // =============================================================
                 // TAB 3: KONTROL MODEM TR-069 PELANGGAN
-                // =============================================================
                 3 -> {
                     when (val st = modemState) {
                         is UiState.Idle, is UiState.Loading -> LoadingStateView()
@@ -759,6 +763,372 @@ fun CustomerPortalScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UnpaidBillSummaryBanner(
+    bill: CustomerBillItem,
+    isEn: Boolean,
+    onOpenPayment: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpenPayment)
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.tertiary),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Payments,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onTertiary
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (isEn) "Unpaid Transaction" else "Menunggu Pembayaran",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+                Text(
+                    text = "${bill.planName} • ${formatMoney(bill.currency, bill.price)}",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+                Text(
+                    text = "${bill.paymentChannel} • ${if (isEn) "Tap to pay" else "Ketuk untuk bayar"}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f)
+                )
+            }
+            Button(
+                onClick = onOpenPayment,
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Text(if (isEn) "Pay" else "Bayar")
+            }
+        }
+    }
+}
+
+@Composable
+private fun FullScreenCustomerCheckout(
+    plan: CustomerBuyPlanItem,
+    dashboard: CustomerPortalDashboard,
+    gateways: List<PortalPaymentGateway>,
+    selectedGatewayId: String,
+    selectedChannelId: String,
+    couponCode: String,
+    isSubmitting: Boolean,
+    onSelectGateway: (String) -> Unit,
+    onSelectChannel: (String) -> Unit,
+    onCouponChanged: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onClose: () -> Unit
+) {
+    val strings = LocalAppStrings.current
+    val isEn = strings.langCode == "en"
+    val isBalancePlan = plan.type.equals("Balance", true)
+    val canShowBalance = !isBalancePlan && dashboard.enableBalance
+    val isBalanceSufficient = dashboard.balance >= plan.price
+
+    val selectedPg = gateways.find { it.id == selectedGatewayId }
+    val isChannelValid = when {
+        selectedGatewayId == "balance" -> canShowBalance && isBalanceSufficient
+        selectedPg == null -> false
+        selectedPg.requiresChannel -> {
+            val ch = selectedPg.channels.find { it.id == selectedChannelId }
+            ch != null && plan.price >= ch.minAmount
+        }
+        else -> true
+    }
+
+    AppScreenScaffold(
+        title = if (isEn) "Checkout" else "Konfirmasi Pesanan",
+        subtitle = plan.namePlan,
+        onBack = onClose,
+        bottomBar = {
+            Surface(tonalElevation = 4.dp, shadowElevation = 8.dp) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onClose,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(strings.cancel)
+                    }
+                    Button(
+                        onClick = onConfirm,
+                        enabled = !isSubmitting && isChannelValid,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1.6f)
+                    ) {
+                        if (isSubmitting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        } else {
+                            Text(if (isEn) "Pay Now" else "Bayar Sekarang")
+                        }
+                    }
+                }
+            }
+        }
+    ) { pad ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(pad)
+                .background(MaterialTheme.colorScheme.background)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Ringkasan Produk
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(plan.namePlan, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        if (!isBalancePlan && plan.validity.isNotBlank()) {
+                            Text(
+                                text = "${if (isEn) "Validity" else "Masa Aktif"}: ${plan.validity}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else if (isBalancePlan) {
+                            Text(
+                                text = if (isEn) "Account Balance Top-Up" else "Penambahan Saldo Akun",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Text(
+                        text = formatMoney(dashboard.currency, plan.price),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            Text(
+                text = strings.paymentMethod,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            // 1. Opsi Saldo Akun (Otomatis UNCLICKABLE jika saldo tidak mencukupi)
+            if (canShowBalance) {
+                val selected = selectedGatewayId == "balance" && isBalanceSufficient
+                val deficit = (plan.price - dashboard.balance).coerceAtLeast(0.0)
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(
+                        width = if (selected) 2.dp else 1.dp,
+                        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .alpha(if (isBalanceSufficient) 1f else 0.55f)
+                        .clickable(enabled = isBalanceSufficient) {
+                            onSelectGateway("balance")
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        RadioButton(
+                            selected = selected,
+                            onClick = if (isBalanceSufficient) { { onSelectGateway("balance") } } else null,
+                            enabled = isBalanceSufficient
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (isEn) "Account Balance (${formatMoney(dashboard.currency, dashboard.balance)})"
+                                else "Saldo Akun (${formatMoney(dashboard.currency, dashboard.balance)})",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = if (isBalanceSufficient) {
+                                    if (isEn) "Instant activation without admin fee" else "Aktivasi instan tanpa biaya admin"
+                                } else {
+                                    if (isEn) "Insufficient balance (short ${formatMoney(dashboard.currency, deficit)})"
+                                    else "Saldo tidak mencukupi (kurang ${formatMoney(dashboard.currency, deficit)})"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isBalanceSufficient) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 2. Daftar Payment Gateway yang Aktif di Pengaturan Admin
+            if (gateways.isEmpty()) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = if (isEn) "No active online payment gateway configured by Admin." else "Belum ada Payment Gateway online yang diaktifkan oleh Admin.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(14.dp)
+                    )
+                }
+            } else {
+                gateways.forEach { pg ->
+                    val isSelected = selectedGatewayId == pg.id
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(
+                            width = if (isSelected) 2.dp else 1.dp,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelectGateway(pg.id) }
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                RadioButton(
+                                    selected = isSelected,
+                                    onClick = { onSelectGateway(pg.id) }
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(pg.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                    if (pg.description.isNotBlank()) {
+                                        Text(
+                                            text = pg.description,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Pemilih Channel HANYA tampil jika requiresChannel == true (Tripay, Duitku)
+                            if (isSelected && pg.requiresChannel && pg.channels.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = if (isEn) "Select Payment Channel:" else "Pilih Channel Pembayaran:",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    pg.channels.forEach { ch ->
+                                        val meetsMin = plan.price >= ch.minAmount
+                                        val chSelected = selectedChannelId == ch.id && meetsMin
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = if (chSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else MaterialTheme.colorScheme.background,
+                                            border = BorderStroke(
+                                                width = if (chSelected) 1.5.dp else 1.dp,
+                                                color = if (chSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                                            ),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .alpha(if (meetsMin) 1f else 0.5f)
+                                                .clickable(enabled = meetsMin) { onSelectChannel(ch.id) }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = ch.name,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = if (chSelected) FontWeight.Bold else FontWeight.Medium
+                                                    )
+                                                    if (!meetsMin) {
+                                                        Text(
+                                                            text = if (isEn) "Min. ${formatMoney(dashboard.currency, ch.minAmount)}"
+                                                            else "Minimal transaksi ${formatMoney(dashboard.currency, ch.minAmount)}",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.error
+                                                        )
+                                                    }
+                                                }
+                                                if (chSelected) {
+                                                    Icon(
+                                                        imageVector = Icons.Outlined.CheckCircle,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Kupon Promo (khusus Paket Internet)
+            if (!isBalancePlan) {
+                OutlinedTextField(
+                    value = couponCode,
+                    onValueChange = onCouponChanged,
+                    label = { Text(if (isEn) "Promo Coupon Code (Optional)" else "Kode Kupon Promo (Opsional)") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }
@@ -1301,202 +1671,6 @@ private fun CustomerModemDetailCard(
             ) {
                 Text(strings.save)
             }
-        }
-    }
-}
-
-@Composable
-private fun UnpaidBillDetailCard(
-    bill: CustomerBillItem,
-    onCheckStatus: () -> Unit,
-    onCancel: () -> Unit
-) {
-    val strings = LocalAppStrings.current
-    val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
-
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-    ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("${bill.planName} (${bill.paymentChannel})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                StatusBadge(text = bill.statusLabel, tone = BadgeTone.WARNING)
-            }
-            Text(
-                text = formatMoney(bill.currency, bill.price),
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Text("Exp: ${bill.expiredDate}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-            if (bill.uiMode == "qris" && bill.qrisImage.isNotBlank()) {
-                AsyncImage(
-                    model = bill.qrisImage,
-                    contentDescription = "QRIS Payment",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(220.dp)
-                )
-            }
-
-            if (bill.payCode.isNotBlank()) {
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = bill.payCode,
-                            style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Monospace),
-                            fontWeight = FontWeight.Bold
-                        )
-                        IconButton(onClick = { clipboard.setText(AnnotatedString(bill.payCode)) }) {
-                            Icon(Icons.Outlined.ContentCopy, contentDescription = strings.copy)
-                        }
-                    }
-                }
-            }
-
-            bill.instructions.forEach { group ->
-                Text(group.title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                group.steps.forEachIndexed { idx, step ->
-                    Text("${idx + 1}. $step", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-
-            HorizontalDivider()
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (bill.checkoutUrl.isNotBlank()) {
-                    Button(
-                        onClick = {
-                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(bill.checkoutUrl))) }
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) { Text("Bayar") }
-                }
-                FilledTonalButton(onClick = onCheckStatus, modifier = Modifier.weight(1f)) { Text("Cek Status") }
-                OutlinedButton(onClick = onCancel) { Text(strings.cancel) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun FullScreenCustomerCheckout(
-    plan: CustomerBuyPlanItem,
-    dashboard: CustomerPortalDashboard,
-    gateways: List<PortalPaymentGateway>,
-    selectedGatewayId: String,
-    selectedChannelId: String,
-    couponCode: String,
-    isSubmitting: Boolean,
-    onSelectGateway: (String, String) -> Unit,
-    onSelectChannel: (String) -> Unit,
-    onCouponChanged: (String) -> Unit,
-    onConfirm: () -> Unit,
-    onClose: () -> Unit
-) {
-    val strings = LocalAppStrings.current
-    val isBalancePlan = plan.type.equals("Balance", true)
-    val selectedPg = gateways.find { it.id == selectedGatewayId }
-
-    AppScreenScaffold(
-        title = plan.namePlan,
-        subtitle = formatMoney(dashboard.currency, plan.price),
-        onBack = onClose,
-        bottomBar = {
-            Surface(tonalElevation = 4.dp, shadowElevation = 8.dp) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedButton(onClick = onClose, modifier = Modifier.weight(1f)) { Text(strings.cancel) }
-                    Button(
-                        onClick = onConfirm,
-                        enabled = !isSubmitting,
-                        modifier = Modifier.weight(1.5f)
-                    ) {
-                        if (isSubmitting) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                        } else {
-                            Text(strings.confirm)
-                        }
-                    }
-                }
-            }
-        }
-    ) { pad ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(pad)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(strings.paymentMethod, style = MaterialTheme.typography.titleMedium)
-
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (!isBalancePlan && dashboard.enableBalance) {
-                    item {
-                        FilterChip(
-                            selected = selectedGatewayId == "balance",
-                            onClick = { onSelectGateway("balance", "") },
-                            label = { Text("Saldo (${formatMoney(dashboard.currency, dashboard.balance)})") }
-                        )
-                    }
-                }
-                items(gateways, key = { it.id }) { pg ->
-                    FilterChip(
-                        selected = selectedGatewayId == pg.id,
-                        onClick = { onSelectGateway(pg.id, pg.channels.firstOrNull()?.id.orEmpty()) },
-                        label = { Text(pg.name) }
-                    )
-                }
-            }
-
-            if (selectedPg != null && selectedPg.channels.isNotEmpty()) {
-                Text("Channel ${selectedPg.name}", style = MaterialTheme.typography.labelLarge)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(selectedPg.channels, key = { it.id }) { ch ->
-                        FilterChip(
-                            selected = selectedChannelId == ch.id,
-                            onClick = { onSelectChannel(ch.id) },
-                            label = { Text(ch.name) }
-                        )
-                    }
-                }
-            }
-
-            OutlinedTextField(
-                value = couponCode,
-                onValueChange = onCouponChanged,
-                label = { Text("Kode Kupon Promo (Opsional)") },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
         }
     }
 }
