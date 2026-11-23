@@ -43,7 +43,7 @@ class OperationsViewModel(
 ) : ViewModel() {
 
     // Laporan Keuangan
-    private val _reportState = MutableStateFlow<UiState<FinancialReportData>>(UiState.Loading)
+    private val _reportState = MutableStateFlow<UiState<FinancialReportData>>(UiState.Idle)
     val reportState: StateFlow<UiState<FinancialReportData>> = _reportState.asStateFlow()
     private val _reportStartDate = MutableStateFlow("")
     val reportStartDate: StateFlow<String> = _reportStartDate.asStateFlow()
@@ -57,7 +57,7 @@ class OperationsViewModel(
     val reportTypeFilter: StateFlow<String> = _reportTypeFilter.asStateFlow()
 
     // Payment Gateway Audit
-    private val _pgState = MutableStateFlow<UiState<PgAuditData>>(UiState.Loading)
+    private val _pgState = MutableStateFlow<UiState<PgAuditData>>(UiState.Idle)
     val pgState: StateFlow<UiState<PgAuditData>> = _pgState.asStateFlow()
     private val _pgStatusFilter = MutableStateFlow("all")
     val pgStatusFilter: StateFlow<String> = _pgStatusFilter.asStateFlow()
@@ -67,26 +67,26 @@ class OperationsViewModel(
     val pgSearch: StateFlow<String> = _pgSearch.asStateFlow()
 
     // Kupon & Aset
-    private val _couponsState = MutableStateFlow<UiState<List<CouponItem>>>(UiState.Loading)
+    private val _couponsState = MutableStateFlow<UiState<List<CouponItem>>>(UiState.Idle)
     val couponsState: StateFlow<UiState<List<CouponItem>>> = _couponsState.asStateFlow()
     private val _couponSearch = MutableStateFlow("")
     val couponSearch: StateFlow<String> = _couponSearch.asStateFlow()
     private val _couponForm = MutableStateFlow(CouponFormState())
     val couponForm: StateFlow<CouponFormState> = _couponForm.asStateFlow()
 
-    private val _assetsState = MutableStateFlow<UiState<Pair<Double, List<AssetItem>>>>(UiState.Loading)
+    private val _assetsState = MutableStateFlow<UiState<Pair<Double, List<AssetItem>>>>(UiState.Idle)
     val assetsState: StateFlow<UiState<Pair<Double, List<AssetItem>>>> = _assetsState.asStateFlow()
     private val _assetForm = MutableStateFlow(AssetFormState())
     val assetForm: StateFlow<AssetFormState> = _assetForm.asStateFlow()
 
     // Peta Jaringan
-    private val _mapState = MutableStateFlow<UiState<NetworkMapData>>(UiState.Loading)
+    private val _mapState = MutableStateFlow<UiState<NetworkMapData>>(UiState.Idle)
     val mapState: StateFlow<UiState<NetworkMapData>> = _mapState.asStateFlow()
 
     // Pesan & Halaman Statis
     private val _messageForm = MutableStateFlow(MessageSendFormState())
     val messageForm: StateFlow<MessageSendFormState> = _messageForm.asStateFlow()
-    private val _staticPagesState = MutableStateFlow<UiState<List<StaticPageItem>>>(UiState.Loading)
+    private val _staticPagesState = MutableStateFlow<UiState<List<StaticPageItem>>>(UiState.Idle)
     val staticPagesState: StateFlow<UiState<List<StaticPageItem>>> = _staticPagesState.asStateFlow()
     private val _editingPage = MutableStateFlow<StaticPageItem?>(null)
     val editingPage: StateFlow<StaticPageItem?> = _editingPage.asStateFlow()
@@ -94,6 +94,7 @@ class OperationsViewModel(
     // Pengaturan, Template Notifikasi, Staf, DB & Logs
     private val _webSettings = MutableStateFlow(WebServerSettings())
     val webSettings: StateFlow<WebServerSettings> = _webSettings.asStateFlow()
+    private var webSettingsLoaded = false
     private val _notifTemplates = MutableStateFlow(emptyList<NotificationTemplateItem>())
     val notifTemplates: StateFlow<List<NotificationTemplateItem>> = _notifTemplates.asStateFlow()
     private val _staffListState = MutableStateFlow<UiState<List<StaffUserItem>>>(UiState.Loading)
@@ -113,13 +114,6 @@ class OperationsViewModel(
     val bannerMessage: StateFlow<String?> = _bannerMessage.asStateFlow()
 
     init {
-        loadFinancialReports()
-        loadPgTransactions()
-        loadCoupons()
-        loadAssets()
-        loadNetworkMap()
-        loadStaticPages()
-        loadWebSettings()
 
         viewModelScope.launch {
             _reportSearch.drop(1).debounce(250L).distinctUntilChanged().collect { loadFinancialReports() }
