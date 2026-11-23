@@ -1,5 +1,6 @@
 package com.phpnuxbill.mobile.feature.portal.data
 
+import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.phpnuxbill.mobile.core.model.ApiResult
 import com.phpnuxbill.mobile.core.network.NetworkGateway
@@ -14,16 +15,19 @@ import com.phpnuxbill.mobile.feature.portal.model.CustomerBillItem
 import com.phpnuxbill.mobile.feature.portal.model.CustomerBuyPlanItem
 import com.phpnuxbill.mobile.feature.portal.model.CustomerModemInfo
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPackageItem
+import com.phpnuxbill.mobile.feature.portal.model.CustomerPlansData
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPortalDashboard
 import com.phpnuxbill.mobile.feature.portal.model.CustomerTransactionItem
 import com.phpnuxbill.mobile.feature.portal.model.PortalGatewayChannel
 import com.phpnuxbill.mobile.feature.portal.model.PortalInstructionGroup
 import com.phpnuxbill.mobile.feature.portal.model.PortalPaymentGateway
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 
 interface CustomerPortalRepository {
-    suspend fun getPortalHome(): ApiResult<CustomerPortalDashboard>
+    suspend fun getPortalDashboard(): ApiResult<CustomerPortalDashboard>
+    suspend fun getPortalPlans(): ApiResult<CustomerPlansData>
+    suspend fun getPortalTransactions(): ApiResult<List<CustomerTransactionItem>>
+    suspend fun getCustomerModem(): ApiResult<CustomerModemInfo?>
+
     suspend fun toggleAutoRenewal(): ApiResult<String>
     suspend fun redeemVoucher(code: String): ApiResult<String>
     suspend fun buyPlan(
@@ -51,45 +55,60 @@ class RemoteCustomerPortalRepository(
     private val networkGateway: NetworkGateway
 ) : CustomerPortalRepository {
 
-    override suspend fun getPortalHome(): ApiResult<CustomerPortalDashboard> = coroutineScope {
-        val dashDef = async { networkGateway.get(action = "dashboard") }
-        val plansDef = async { networkGateway.get(action = "plans") }
-        val trxDef = async { networkGateway.get(action = "transactions") }
-        val modemDef = async { networkGateway.get(action = "customer_genieacs_dashboard") }
+    override suspend fun getPortalDashboard(): ApiResult<CustomerPortalDashboard> {
+        return when (val dashRes = networkGateway.get(action = "dashboard")) {
+            is ApiResult.Error -> dashRes
+            is ApiResult.Success -> {
+                val root = dashRes.data.asObjOrNull()
+                val comp = root?.getAsJsonObject("company")
+                val cust = root?.getAsJsonObject("customer")
 
-        val dashRes = dashDef.await()
-        val plansRes = plansDef.await()
-        val trxRes = trxDef.await()
-        val modemRes = modemDef.await()
+                val pkgs = root?.getAsJsonArray("active_packages")?.mapNotNull { el ->
+                    val o = el.asObjOrNull() ?: return@mapNotNull null
+                    CustomerPackageItem(
+                        id = o.intVal("id"),
+                        namebp = o.str("namebp"),
+                        status = o.str("status"),
+                        expiration = o.str("expiration"),
+                        time = o.str("time"),
+                        rechargedOn = o.str("recharged_on"),
+                        routers = o.str("routers"),
+                        type = o.str("type")
+                    )
+                }.orEmpty()
 
-        if (dashRes is ApiResult.Error) return@coroutineScope dashRes
+                ApiResult.Success(
+                    data = CustomerPortalDashboard(
+                        companyName = comp.str("name").ifBlank { "PHPNuxBill" },
+                        companyPhone = comp.str("phone"),
+                        companyAddress = comp.str("address"),
+                        currency = comp.str("currency").ifBlank { "Rp." },
+                        enableBalance = comp?.boolVal("enable_balance") ?: true,
+                        customerId = cust.intVal("id"),
+                        username = cust.str("username"),
+                        fullname = cust.str("fullname").ifBlank { cust.str("username") },
+                        customerPhone = cust.str("phonenumber"),
+                        customerAddress = cust.str("address"),
+                        balance = cust.doubleVal("balance"),
+                        serviceType = cust.str("service_type").ifBlank { "Hotspot" },
+                        autoRenewal = cust.intVal("auto_renewal") == 1,
+                        paymentGateways = parseGateways(root?.getAsJsonArray("payment_gateways")),
+                        activePackages = pkgs,
+                        unpaidBill = parseBill(root?.get("unpaid_bill").asObjOrNull())
+                    ),
+                    message = dashRes.message
+                )
+            }
+        }
+    }
 
-        val root = (dashRes as ApiResult.Success).data.asObjOrNull()
-        val comp = root?.getAsJsonObject("company")
-        val cust = root?.getAsJsonObject("customer")
-
-        val gateways = parseGateways(root?.getAsJsonArray("payment_gateways"))
-
-        val pkgs = root?.getAsJsonArray("active_packages")?.mapNotNull { el ->
-            val o = el.asObjOrNull() ?: return@mapNotNull null
-            CustomerPackageItem(
-                id = o.intVal("id"),
-                namebp = o.str("namebp"),
-                status = o.str("status"),
-                expiration = o.str("expiration"),
-                time = o.str("time"),
-                routers = o.str("routers"),
-                type = o.str("type")
-            )
-        }.orEmpty()
-
-        val internetPlans = mutableListOf<CustomerBuyPlanItem>()
-        val balancePlans = mutableListOf<CustomerBuyPlanItem>()
-        if (plansRes is ApiResult.Success) {
-            val pRoot = plansRes.data.asObjOrNull()
-            pRoot?.getAsJsonArray("internet_plans")?.forEach { el ->
-                val o = el.asObjOrNull() ?: return@forEach
-                internetPlans.add(
+    override suspend fun getPortalPlans(): ApiResult<CustomerPlansData> {
+        return when (val plansRes = networkGateway.get(action = "plans")) {
+            is ApiResult.Error -> plansRes
+            is ApiResult.Success -> {
+                val pRoot = plansRes.data.asObjOrNull()
+                val internetPlans = pRoot?.getAsJsonArray("internet_plans")?.mapNotNull { el ->
+                    val o = el.asObjOrNull() ?: return@mapNotNull null
                     CustomerBuyPlanItem(
                         id = o.intVal("id"),
                         namePlan = o.str("name_plan"),
@@ -97,11 +116,10 @@ class RemoteCustomerPortalRepository(
                         type = o.str("type"),
                         validity = o.str("validity")
                     )
-                )
-            }
-            pRoot?.getAsJsonArray("balance_plans")?.forEach { el ->
-                val o = el.asObjOrNull() ?: return@forEach
-                balancePlans.add(
+                }.orEmpty().sortedBy { it.price }
+
+                val balancePlans = pRoot?.getAsJsonArray("balance_plans")?.mapNotNull { el ->
+                    val o = el.asObjOrNull() ?: return@mapNotNull null
                     CustomerBuyPlanItem(
                         id = o.intVal("id"),
                         namePlan = o.str("name_plan"),
@@ -109,70 +127,70 @@ class RemoteCustomerPortalRepository(
                         type = "Balance",
                         validity = o.str("validity")
                     )
+                }.orEmpty().sortedBy { it.price }
+
+                ApiResult.Success(
+                    data = CustomerPlansData(
+                        internetPlans = internetPlans,
+                        balancePlans = balancePlans,
+                        paymentGateways = parseGateways(pRoot?.getAsJsonArray("payment_gateways"))
+                    ),
+                    message = plansRes.message
                 )
             }
         }
+    }
 
-        val transactions = if (trxRes is ApiResult.Success) {
-            trxRes.data.asArrOrNull()?.mapNotNull { el ->
-                val o = el.asObjOrNull() ?: return@mapNotNull null
-                CustomerTransactionItem(
-                    id = o.intVal("id"),
-                    invoice = o.str("invoice"),
-                    planName = o.str("plan_name"),
-                    price = o.doubleVal("price"),
-                    rechargedOn = o.str("recharged_on"),
-                    rechargedTime = o.str("recharged_time"),
-                    method = o.str("method"),
-                    type = o.str("type")
-                )
-            }.orEmpty()
-        } else emptyList()
+    override suspend fun getPortalTransactions(): ApiResult<List<CustomerTransactionItem>> {
+        return when (val trxRes = networkGateway.get(action = "transactions")) {
+            is ApiResult.Error -> trxRes
+            is ApiResult.Success -> {
+                val list = trxRes.data.asArrOrNull()?.mapNotNull { el ->
+                    val o = el.asObjOrNull() ?: return@mapNotNull null
+                    CustomerTransactionItem(
+                        id = o.intVal("id"),
+                        invoice = o.str("invoice"),
+                        planName = o.str("plan_name"),
+                        price = o.doubleVal("price"),
+                        rechargedOn = o.str("recharged_on"),
+                        rechargedTime = o.str("recharged_time"),
+                        method = o.str("method"),
+                        type = o.str("type")
+                    )
+                }.orEmpty()
+                ApiResult.Success(list, trxRes.message)
+            }
+        }
+    }
 
-        val modemInfo = if (modemRes is ApiResult.Success) {
-            val mRoot = modemRes.data.asObjOrNull()
-            val dev = mRoot?.getAsJsonObject("device")
-            val firstWlan = mRoot?.getAsJsonArray("wlan_configs")?.firstOrNull()?.asObjOrNull()
-            val hostsCnt = mRoot?.getAsJsonArray("connected_hosts")?.size() ?: 0
-            if (dev != null) {
-                CustomerModemInfo(
-                    deviceId = dev.str("id").ifBlank { dev.str("_id") },
-                    online = dev.boolVal("online"),
-                    model = "${dev.str("manufacturer")} ${dev.str("model")}".trim().ifBlank { "-" },
-                    serialNumber = dev.str("serial_number").ifBlank { "-" },
-                    uptime = dev.str("uptime").ifBlank { "-" },
-                    isOptical = dev.boolVal("is_optical"),
-                    rxPower = dev.str("rx_power").ifBlank { "N/A" },
-                    connectedDevices = dev.intVal("connected_devices"),
-                    wlanIndex = firstWlan?.intVal("index")?.takeIf { it > 0 } ?: 1,
-                    wlanSource = firstWlan?.str("source")?.ifBlank { "tr098" } ?: "tr098",
-                    currentSsid = firstWlan?.str("ssid").orEmpty(),
-                    currentPassword = firstWlan?.str("password").orEmpty(),
-                    connectedHostsCount = hostsCnt
-                )
-            } else null
-        } else null
-
-        ApiResult.Success(
-            CustomerPortalDashboard(
-                companyName = comp.str("name").ifBlank { "PHPNuxBill" },
-                currency = comp.str("currency").ifBlank { "Rp." },
-                enableBalance = comp?.boolVal("enable_balance") ?: true,
-                customerId = cust.intVal("id"),
-                username = cust.str("username"),
-                fullname = cust.str("fullname").ifBlank { cust.str("username") },
-                balance = cust.doubleVal("balance"),
-                serviceType = cust.str("service_type").ifBlank { "Hotspot" },
-                autoRenewal = cust.intVal("auto_renewal") == 1,
-                paymentGateways = gateways,
-                activePackages = pkgs,
-                internetPlans = internetPlans,
-                balancePlans = balancePlans,
-                unpaidBill = parseBill(root?.get("unpaid_bill").asObjOrNull()),
-                transactions = transactions,
-                modemInfo = modemInfo
-            )
-        )
+    override suspend fun getCustomerModem(): ApiResult<CustomerModemInfo?> {
+        return when (val modemRes = networkGateway.get(action = "customer_genieacs_dashboard")) {
+            is ApiResult.Error -> modemRes
+            is ApiResult.Success -> {
+                val mRoot = modemRes.data.asObjOrNull()
+                val dev = mRoot?.getAsJsonObject("device")
+                val firstWlan = mRoot?.getAsJsonArray("wlan_configs")?.firstOrNull()?.asObjOrNull()
+                val hostsCnt = mRoot?.getAsJsonArray("connected_hosts")?.size() ?: 0
+                val info = dev?.let {
+                    CustomerModemInfo(
+                        deviceId = it.str("id").ifBlank { it.str("_id") },
+                        online = it.boolVal("online"),
+                        model = "${it.str("manufacturer")} ${it.str("model")}".trim().ifBlank { "-" },
+                        serialNumber = it.str("serial_number").ifBlank { "-" },
+                        uptime = it.str("uptime").ifBlank { "-" },
+                        isOptical = it.boolVal("is_optical"),
+                        rxPower = it.str("rx_power").ifBlank { "N/A" },
+                        connectedDevices = it.intVal("connected_devices"),
+                        wlanIndex = firstWlan?.intVal("index")?.takeIf { idx -> idx > 0 } ?: 1,
+                        wlanSource = firstWlan?.str("source")?.ifBlank { "tr098" } ?: "tr098",
+                        currentSsid = firstWlan?.str("ssid").orEmpty(),
+                        currentPassword = firstWlan?.str("password").orEmpty(),
+                        connectedHostsCount = hostsCnt
+                    )
+                }
+                ApiResult.Success(info, modemRes.message)
+            }
+        }
     }
 
     override suspend fun toggleAutoRenewal(): ApiResult<String> =
@@ -266,7 +284,7 @@ class RemoteCustomerPortalRepository(
             is ApiResult.Success -> ApiResult.Success(res.message, res.message)
         }
 
-    private fun parseGateways(arr: com.google.gson.JsonArray?): List<PortalPaymentGateway> {
+    private fun parseGateways(arr: JsonArray?): List<PortalPaymentGateway> {
         if (arr == null) return emptyList()
         return arr.mapNotNull { el ->
             val o = el.asObjOrNull() ?: return@mapNotNull null
