@@ -1,11 +1,18 @@
 package com.phpnuxbill.mobile.feature.portal.ui
 
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.RectF
+import android.graphics.Typeface
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -96,48 +103,209 @@ object PaymentUtils {
     }
 
     /**
-     * Menyimpan QR Code ke Galeri HP (MediaStore) baik dari Bitmap lokal maupun URL gambar (ViaQRIS/Tripay).
+     * Menyimpan QRIS berlabel (Brand + Nama Paket + Nominal Bayar) ke Pictures/{NamaBrand}/QRIS_Terbaru.png
+     * dengan sistem timpa agar hanya ada 1 gambar QRIS terbaru di folder tersebut.
      */
-    suspend fun saveQrToGallery(
+    suspend fun saveBrandedQrToGallery(
         context: Context,
         localBitmap: Bitmap?,
         imageUrl: String,
-        fileNamePrefix: String
+        brandName: String,
+        planName: String,
+        paymentAmountLabel: String,
+        invoiceLabel: String
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            val bitmapToSave = localBitmap ?: downloadBitmapFromUrl(imageUrl)
+            val rawQr = localBitmap ?: downloadBitmapFromUrl(imageUrl)
                 ?: throw IllegalStateException("Gambar QR belum siap disimpan.")
 
-            val fileName = "${fileNamePrefix}_${System.currentTimeMillis()}.png"
+            val safeBrand = sanitizeFolderName(brandName)
+            val posterBitmap = createBrandedQrPoster(
+                qrBitmap = rawQr,
+                brandName = brandName.ifBlank { "PHPNuxBill" },
+                planName = planName,
+                paymentAmountLabel = paymentAmountLabel,
+                invoiceLabel = invoiceLabel
+            )
+
+            val fixedFileName = "QRIS_Terbaru.png"
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val relativePathNoSlash = "${Environment.DIRECTORY_PICTURES}/$safeBrand"
+                val relativePathWithSlash = "$relativePathNoSlash/"
+                val resolver = context.contentResolver
+
+                // Hapus file QRIS_Terbaru.png lama di folder brand agar hanya tersisa 1 file terbaru
+                runCatching {
+                    val projection = arrayOf(MediaStore.Images.Media._ID)
+                    val selection =
+                        "${MediaStore.Images.Media.DISPLAY_NAME} = ? AND (${MediaStore.Images.Media.RELATIVE_PATH} = ? OR ${MediaStore.Images.Media.RELATIVE_PATH} = ?)"
+                    val selectionArgs = arrayOf(fixedFileName, relativePathNoSlash, relativePathWithSlash)
+                    resolver.query(
+                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                        projection,
+                        selection,
+                        selectionArgs,
+                        null
+                    )?.use { cursor ->
+                        val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                        while (cursor.moveToNext()) {
+                            val existingUri = ContentUris.withAppendedId(
+                                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                                cursor.getLong(idCol)
+                            )
+                            resolver.delete(existingUri, null, null)
+                        }
+                    }
+                }
+
                 val values = ContentValues().apply {
-                    put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                    put(MediaStore.Images.Media.DISPLAY_NAME, fixedFileName)
                     put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                    put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/QRIS")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, relativePathWithSlash)
                     put(MediaStore.Images.Media.IS_PENDING, 1)
                 }
-                val resolver = context.contentResolver
                 val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
                     ?: throw IllegalStateException("Gagal membuat file di Galeri.")
                 resolver.openOutputStream(uri)?.use { out ->
-                    bitmapToSave.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    posterBitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
                 } ?: throw IllegalStateException("Gagal menulis file QR.")
                 values.clear()
                 values.put(MediaStore.Images.Media.IS_PENDING, 0)
                 resolver.update(uri, values, null, null)
-                "QR tersimpan di Galeri (Pictures/QRIS)"
+                "QR tersimpan di Pictures/$safeBrand/$fixedFileName"
             } else {
-                val dir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
-                    ?: context.cacheDir
-                val file = File(dir, fileName)
-                FileOutputStream(file).use { out ->
-                    bitmapToSave.compress(Bitmap.CompressFormat.PNG, 100, out)
+                val baseDir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES) ?: context.cacheDir
+                val brandDir = File(baseDir, safeBrand).apply { if (!exists()) mkdirs() }
+                val file = File(brandDir, fixedFileName)
+                FileOutputStream(file, false).use { out ->
+                    posterBitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
                 }
-                @Suppress("DEPRECATION")
-                MediaStore.Images.Media.insertImage(context.contentResolver, file.absolutePath, fileName, "QRIS Payment")
-                "QR berhasil disimpan ke perangkat"
+                MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), arrayOf("image/png"), null)
+                "QR tersimpan di $safeBrand/$fixedFileName"
             }
         }
+    }
+
+    /**
+     * Merangkai kartu PNG bersih berlatar putih berisi Brand, QR Code, Nama Paket, dan Nominal Pembayaran.
+     */
+    private fun createBrandedQrPoster(
+        qrBitmap: Bitmap,
+        brandName: String,
+        planName: String,
+        paymentAmountLabel: String,
+        invoiceLabel: String
+    ): Bitmap {
+        val width = 900
+        val height = 1180
+        val result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(result)
+        canvas.drawColor(Color.WHITE)
+
+        // Header bar lembut sesuai identitas warna aplikasi
+        val headerBg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#0C4A6E")
+            style = Paint.Style.FILL
+        }
+        canvas.drawRect(0f, 0f, width.toFloat(), 170f, headerBg)
+
+        val brandPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = 46f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+        }
+        val tagPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#BAE6FD")
+            textSize = 26f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+        }
+
+        val cx = width / 2f
+        canvas.drawText(ellipsizeText(brandName, brandPaint, width - 80f), cx, 86f, brandPaint)
+        canvas.drawText("QRIS PEMBAYARAN", cx, 134f, tagPaint)
+
+        // Bingkai QR dengan quiet-zone putih lebar agar pemindai bank/e-wallet selalu mudah membaca
+        val qrBoxSize = 620
+        val qrLeft = (width - qrBoxSize) / 2
+        val qrTop = 215
+        val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#E2E8F0")
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+        }
+        canvas.drawRoundRect(
+            RectF(qrLeft - 20f, qrTop - 20f, (qrLeft + qrBoxSize + 20).toFloat(), (qrTop + qrBoxSize + 20).toFloat()),
+            28f,
+            28f,
+            framePaint
+        )
+
+        val srcRect = Rect(0, 0, qrBitmap.width, qrBitmap.height)
+        val dstRect = Rect(qrLeft, qrTop, qrLeft + qrBoxSize, qrTop + qrBoxSize)
+        val qrPaint = Paint(Paint.FILTER_BITMAP_FLAG)
+        canvas.drawBitmap(qrBitmap, srcRect, dstRect, qrPaint)
+
+        // Blok informasi Paket & Nominal Pembayaran di bawah QR
+        val infoBoxBg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#F8FAFC")
+            style = Paint.Style.FILL
+        }
+        val infoRect = RectF(64f, 880f, (width - 64).toFloat(), 1125f)
+        canvas.drawRoundRect(infoRect, 24f, 24f, infoBoxBg)
+        canvas.drawRoundRect(infoRect, 24f, 24f, framePaint)
+
+        val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#64748B")
+            textSize = 25f
+            textAlign = Paint.Align.CENTER
+        }
+        val planPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#0F172A")
+            textSize = 36f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+        }
+        val amountPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#0284C7")
+            textSize = 54f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+        }
+        val metaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#64748B")
+            textSize = 23f
+            textAlign = Paint.Align.CENTER
+        }
+
+        val maxInfoW = infoRect.width() - 48f
+        canvas.drawText(ellipsizeText(planName, planPaint, maxInfoW), cx, 938f, planPaint)
+        canvas.drawText("Nominal Pembayaran", cx, 982f, labelPaint)
+        canvas.drawText(ellipsizeText(paymentAmountLabel, amountPaint, maxInfoW), cx, 1052f, amountPaint)
+        if (invoiceLabel.isNotBlank()) {
+            canvas.drawText(ellipsizeText(invoiceLabel, metaPaint, maxInfoW), cx, 1098f, metaPaint)
+        }
+
+        return result
+    }
+
+    private fun ellipsizeText(text: String, paint: Paint, maxWidth: Float): String {
+        if (paint.measureText(text) <= maxWidth) return text
+        var end = text.length
+        while (end > 1 && paint.measureText(text.substring(0, end) + "...") > maxWidth) {
+            end--
+        }
+        return text.substring(0, end) + "..."
+    }
+
+    private fun sanitizeFolderName(raw: String): String {
+        val cleaned = raw.trim()
+            .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+            .replace(Regex("\\s+"), " ")
+            .trim('.', ' ')
+        return cleaned.ifBlank { "PHPNuxBill" }
     }
 
     private fun downloadBitmapFromUrl(urlStr: String): Bitmap? {
@@ -157,9 +325,6 @@ object PaymentUtils {
         return bankCatalog.find { it.code == code }?.label ?: code
     }
 
-    /**
-     * Mencari aplikasi bank/e-wallet terpasang untuk kode bank spesifik (mis. BCA, BRI, MANDIRI, DANA).
-     */
     fun findInstalledAppForCode(context: Context, bankCode: String): InstalledPaymentApp? {
         val code = bankCode.trim().uppercase()
         if (code.isBlank() || code == "QRIS") return null
@@ -173,9 +338,6 @@ object PaymentUtils {
         return null
     }
 
-    /**
-     * Mengambil daftar aplikasi m-Banking & E-Wallet yang benar-benar terpasang di HP user untuk pintasan QRIS.
-     */
     fun getInstalledQrisApps(context: Context): List<InstalledPaymentApp> {
         val pm = context.packageManager
         val found = mutableListOf<InstalledPaymentApp>()
@@ -191,9 +353,6 @@ object PaymentUtils {
         return found
     }
 
-    /**
-     * Membuka aplikasi bank/e-wallet tanpa menutup aplikasi kita di latar belakang.
-     */
     fun launchInstalledApp(context: Context, packageName: String): Boolean {
         val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName) ?: return false
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -203,10 +362,6 @@ object PaymentUtils {
         }.getOrDefault(false)
     }
 
-    /**
-     * Membuka URL pembayaran (E-Wallet Deep Link / Xendit / PayPal).
-     * Android akan otomatis mengarahkan ke aplikasi e-wallet/PayPal jika terpasang, atau browser bila tidak.
-     */
     fun openExternalPaymentUrl(context: Context, url: String): Boolean {
         val clean = url.trim()
         if (clean.isBlank()) return false
