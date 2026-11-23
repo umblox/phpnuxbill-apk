@@ -50,6 +50,7 @@ class CustomerPortalViewModel(
 
     private val _isCheckingPayment = MutableStateFlow(false)
     val isCheckingPayment: StateFlow<Boolean> = _isCheckingPayment.asStateFlow()
+    private var isCheckRequestInFlight = false
 
     private val _selectedGatewayId = MutableStateFlow("")
     val selectedGatewayId: StateFlow<String> = _selectedGatewayId.asStateFlow()
@@ -308,17 +309,17 @@ class CustomerPortalViewModel(
         }
     }
 
-    fun checkBillStatus(billId: Int, silent: Boolean = false) {
-        if (_isCheckingPayment.value) return
-        viewModelScope.launch {
-            _isCheckingPayment.value = true
+fun checkBillStatus(billId: Int, silent: Boolean = false) {
+    if (isCheckRequestInFlight) return
+    viewModelScope.launch {
+        isCheckRequestInFlight = true
+        if (!silent) _isCheckingPayment.value = true
+        try {
             when (val res = repository.checkBillStatus(billId)) {
                 is ApiResult.Success -> {
                     val (isPaid, updatedBill) = res.data
-                    if (updatedBill != null) {
-                        if (_activePaymentBill.value?.id == updatedBill.id) {
-                            _activePaymentBill.value = updatedBill
-                        }
+                    if (updatedBill != null && _activePaymentBill.value?.id == updatedBill.id) {
+                        _activePaymentBill.value = updatedBill
                     }
                     if (isPaid) {
                         _bannerMessage.value = res.message
@@ -332,9 +333,12 @@ class CustomerPortalViewModel(
                     if (!silent) _bannerMessage.value = res.message
                 }
             }
-            _isCheckingPayment.value = false
+        } finally {
+            isCheckRequestInFlight = false
+            if (!silent) _isCheckingPayment.value = false
         }
     }
+}
 
     fun cancelBill(billId: Int) {
         viewModelScope.launch {
