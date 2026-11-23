@@ -667,7 +667,7 @@ fun CustomerPortalScreen(
                                                         contentAlignment = Alignment.Center
                                                     ) {
                                                         Icon(
-                                                            imageVector = Icons.Outlined.ReceiptLong,
+                                                            imageVector = Icons.AutoMirrored.Outlined.ReceiptLong,
                                                             contentDescription = null,
                                                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
                                                             modifier = Modifier.size(20.dp)
