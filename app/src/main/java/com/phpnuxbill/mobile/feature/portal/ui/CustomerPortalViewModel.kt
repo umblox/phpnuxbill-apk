@@ -67,12 +67,6 @@ class CustomerPortalViewModel(
     private val _couponCodeInput = MutableStateFlow("")
     val couponCodeInput: StateFlow<String> = _couponCodeInput.asStateFlow()
 
-    private val _wifiSsidInput = MutableStateFlow("")
-    val wifiSsidInput: StateFlow<String> = _wifiSsidInput.asStateFlow()
-
-    private val _wifiPassInput = MutableStateFlow("")
-    val wifiPassInput: StateFlow<String> = _wifiPassInput.asStateFlow()
-
     private val _isSubmitting = MutableStateFlow(false)
     val isSubmitting: StateFlow<Boolean> = _isSubmitting.asStateFlow()
 
@@ -93,11 +87,6 @@ class CustomerPortalViewModel(
 
     fun onCouponCodeChanged(v: String) {
         _couponCodeInput.value = v.uppercase()
-    }
-
-    fun onWifiInputsChanged(ssid: String, pass: String) {
-        _wifiSsidInput.value = ssid
-        _wifiPassInput.value = pass
     }
 
     fun setAppLanguage(langCode: String) {
@@ -186,14 +175,7 @@ class CustomerPortalViewModel(
         viewModelScope.launch {
             _modemState.value = UiState.Loading
             when (val res = repository.getCustomerModem()) {
-                is ApiResult.Success -> {
-                    _modemState.value = UiState.Success(res.data)
-                    val modem = res.data.info
-                    if (modem != null && _wifiSsidInput.value.isBlank()) {
-                        _wifiSsidInput.value = modem.currentSsid
-                        _wifiPassInput.value = modem.currentPassword
-                    }
-                }
+                is ApiResult.Success -> _modemState.value = UiState.Success(res.data)
                 is ApiResult.Error -> _modemState.value = UiState.Error(res.message)
             }
         }
@@ -571,48 +553,70 @@ class CustomerPortalViewModel(
         }
     }
 
-    fun saveWifi() {
-        val modem = (_modemState.value as? UiState.Success)?.data?.info
-        val ssid = _wifiSsidInput.value.trim()
-        if (ssid.isBlank()) return
+    fun saveWifi(
+        wlanIndex: Int,
+        ssid: String,
+        password: String,
+        source: String,
+        onSuccess: () -> Unit
+    ) {
+        if (ssid.isBlank() || _isSubmitting.value) return
         viewModelScope.launch {
+            _isSubmitting.value = true
             when (
                 val res = repository.updateCustomerWifi(
-                    deviceId = modem?.deviceId.orEmpty(),
-                    wlanIndex = modem?.wlanIndex ?: 1,
-                    ssid = ssid,
-                    password = _wifiPassInput.value.trim(),
-                    source = modem?.wlanSource ?: "tr098"
+                    wlanIndex = wlanIndex,
+                    ssid = ssid.trim(),
+                    password = password.trim(),
+                    source = source
                 )
             ) {
                 is ApiResult.Success -> {
+                    _isSubmitting.value = false
                     _bannerMessage.value = res.message
+                    onSuccess()
                     loadModem()
                 }
-                is ApiResult.Error -> _bannerMessage.value = res.message
+                is ApiResult.Error -> {
+                    _isSubmitting.value = false
+                    _bannerMessage.value = res.message
+                }
             }
         }
     }
 
-    fun rebootModem() {
-        val deviceId = (_modemState.value as? UiState.Success)?.data?.info?.deviceId.orEmpty()
+    fun rebootModem(onSuccess: () -> Unit = {}) {
+        if (_isSubmitting.value) return
         viewModelScope.launch {
-            when (val res = repository.rebootCustomerModem(deviceId)) {
-                is ApiResult.Success -> _bannerMessage.value = res.message
-                is ApiResult.Error -> _bannerMessage.value = res.message
+            _isSubmitting.value = true
+            when (val res = repository.rebootCustomerModem()) {
+                is ApiResult.Success -> {
+                    _isSubmitting.value = false
+                    _bannerMessage.value = res.message
+                    onSuccess()
+                }
+                is ApiResult.Error -> {
+                    _isSubmitting.value = false
+                    _bannerMessage.value = res.message
+                }
             }
         }
     }
 
     fun summonModem() {
-        val deviceId = (_modemState.value as? UiState.Success)?.data?.info?.deviceId.orEmpty()
+        if (_isSubmitting.value) return
         viewModelScope.launch {
-            when (val res = repository.summonCustomerModem(deviceId)) {
+            _isSubmitting.value = true
+            when (val res = repository.summonCustomerModem()) {
                 is ApiResult.Success -> {
+                    _isSubmitting.value = false
                     _bannerMessage.value = res.message
                     loadModem()
                 }
-                is ApiResult.Error -> _bannerMessage.value = res.message
+                is ApiResult.Error -> {
+                    _isSubmitting.value = false
+                    _bannerMessage.value = res.message
+                }
             }
         }
     }
