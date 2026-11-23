@@ -282,7 +282,7 @@ private fun FullSpacePricingCarousel(
 
         Spacer(modifier = Modifier.height(18.dp))
 
-        // Indikator Halaman (Titik + Counter)
+        // Indikator Halaman (Titik)
         if (items.size > 1) {
             Row(
                 horizontalArrangement = Arrangement.Center,
@@ -357,7 +357,7 @@ private fun PricingShowcaseCard(
             }
         }
     }
-    
+
     val backgroundModifier = if (isHighlighted) {
         Modifier.background(
             Brush.verticalGradient(
@@ -452,7 +452,7 @@ private fun PricingShowcaseCard(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // Bagian Tengah: Baris Spesifikasi dengan Garis Pemisah (Persis Referensi Pricing Table)
+            // Bagian Tengah: Baris Spesifikasi dengan Garis Pemisah
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -475,7 +475,7 @@ private fun PricingShowcaseCard(
 
             Spacer(modifier = Modifier.height(22.dp))
 
-            // Bagian Bawah: Tombol Aksi Penuh (Putih kontras di kartu highlight, Primary di kartu samping)
+            // Bagian Bawah: Tombol Aksi Penuh
             Button(
                 onClick = onSelect,
                 shape = RoundedCornerShape(14.dp),
