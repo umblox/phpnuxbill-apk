@@ -45,6 +45,7 @@ data class CustomerPackageItem(
     val status: String,
     val expiration: String,
     val time: String,
+    val rechargedOn: String,
     val routers: String,
     val type: String
 )
@@ -55,6 +56,12 @@ data class CustomerBuyPlanItem(
     val price: Double,
     val type: String,
     val validity: String
+)
+
+data class CustomerPlansData(
+    val internetPlans: List<CustomerBuyPlanItem> = emptyList(),
+    val balancePlans: List<CustomerBuyPlanItem> = emptyList(),
+    val paymentGateways: List<PortalPaymentGateway> = emptyList()
 )
 
 data class CustomerTransactionItem(
@@ -86,19 +93,19 @@ data class CustomerModemInfo(
 
 data class CustomerPortalDashboard(
     val companyName: String = "PHPNuxBill",
+    val companyPhone: String = "",
+    val companyAddress: String = "",
     val currency: String = "Rp.",
     val enableBalance: Boolean = true,
     val customerId: Int = 0,
     val username: String = "",
     val fullname: String = "",
+    val customerPhone: String = "",
+    val customerAddress: String = "",
     val balance: Double = 0.0,
     val serviceType: String = "Hotspot",
     val autoRenewal: Boolean = false,
     val paymentGateways: List<PortalPaymentGateway> = emptyList(),
     val activePackages: List<CustomerPackageItem> = emptyList(),
-    val internetPlans: List<CustomerBuyPlanItem> = emptyList(),
-    val balancePlans: List<CustomerBuyPlanItem> = emptyList(),
-    val unpaidBill: CustomerBillItem? = null,
-    val transactions: List<CustomerTransactionItem> = emptyList(),
-    val modemInfo: CustomerModemInfo? = null
+    val unpaidBill: CustomerBillItem? = null
 )
