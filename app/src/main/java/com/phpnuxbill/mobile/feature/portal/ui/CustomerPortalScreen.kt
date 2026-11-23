@@ -141,7 +141,8 @@ fun CustomerPortalScreen(
     var showTransferDialog by remember { mutableStateOf(false) }
     var showSendPlanDialog by remember { mutableStateOf(false) }
     var lastBackPressedAt by remember { mutableLongStateOf(0L) }
-
+    val friendLookupState by viewModel.friendLookupState.collectAsStateWithLifecycle()
+    
     val activeDash = (dashboardState as? UiState.Success)?.data
     val plansData = (plansState as? UiState.Success)?.data
     val effectiveBrandName = activeDash?.companyName?.ifBlank { session.effectiveCompanyName }
