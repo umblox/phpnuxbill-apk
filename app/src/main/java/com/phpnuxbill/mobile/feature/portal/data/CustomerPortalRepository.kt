@@ -100,7 +100,10 @@ class RemoteCustomerPortalRepository(
                         time = o.str("time"),
                         rechargedOn = o.str("recharged_on"),
                         routers = o.str("routers"),
-                        type = o.str("type")
+                        type = o.str("type"),
+                        price = o.doubleVal("price"),
+                        validity = o.str("validity"),
+                        planEnabled = if (o.has("plan_enabled")) o.intVal("plan_enabled") == 1 else true
                     )
                 }.orEmpty()
 
