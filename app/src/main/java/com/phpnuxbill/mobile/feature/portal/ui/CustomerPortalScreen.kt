@@ -40,7 +40,6 @@ import androidx.compose.material.icons.outlined.ConfirmationNumber
 import androidx.compose.material.icons.outlined.HourglassTop
 import androidx.compose.material.icons.outlined.MailOutline
 import androidx.compose.material.icons.outlined.Payments
-import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.ShoppingBag
 import androidx.compose.material.icons.outlined.SupportAgent
 import androidx.compose.material.icons.outlined.Sync
@@ -669,28 +668,28 @@ fun CustomerPortalScreen(
                 }
 
                 // =============================================================
-                // TAB 3: MODEM TR-069 (KHUSUS PPPOE & OTHERS — INFORMATIF)
+                // TAB 3: MODEM TR-069 (DELEGASI KE CustomerModemTab.kt)
                 // =============================================================
                 3 -> {
-                 when (val st = modemState) {
-                     is UiState.Idle, is UiState.Loading -> LoadingStateView()
-                     is UiState.Error -> ErrorStateView(message = st.message, onRetry = viewModel::loadModem)
-                     is UiState.Success -> {
-                         CustomerModemTabContent(
-                             result = st.data,
-                             companyPhone = activeDash?.companyPhone.orEmpty(),
-                             isSubmitting = isSubmitting,
-                             isEn = isEn,
-                             onSaveWifi = { idx, ssid, pass, src, onDone ->
-                                 viewModel.saveWifi(idx, ssid, pass, src, onDone)
-                             },
-                             onSummon = viewModel::summonModem,
-                             onReboot = { onDone -> viewModel.rebootModem(onDone) },
-                             onReload = viewModel::loadModem
-                         )
-                     }
-                 }
-              }
+                    when (val st = modemState) {
+                        is UiState.Idle, is UiState.Loading -> LoadingStateView()
+                        is UiState.Error -> ErrorStateView(message = st.message, onRetry = viewModel::loadModem)
+                        is UiState.Success -> {
+                            CustomerModemTabContent(
+                                result = st.data,
+                                companyPhone = activeDash?.companyPhone.orEmpty(),
+                                isSubmitting = isSubmitting,
+                                isEn = isEn,
+                                onSaveWifi = { idx, ssid, pass, src, onDone ->
+                                    viewModel.saveWifi(idx, ssid, pass, src, onDone)
+                                },
+                                onSummon = viewModel::summonModem,
+                                onReboot = { onDone -> viewModel.rebootModem(onDone) },
+                                onReload = viewModel::loadModem
+                            )
+                        }
+                    }
+                }
             }
         }
     }
