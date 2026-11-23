@@ -5,11 +5,14 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.phpnuxbill.mobile.core.datastore.SessionStorage
 import com.phpnuxbill.mobile.core.model.ApiResult
+import com.phpnuxbill.mobile.core.model.AppThemeMode
 import com.phpnuxbill.mobile.core.model.UiState
 import com.phpnuxbill.mobile.feature.portal.data.CustomerPortalRepository
 import com.phpnuxbill.mobile.feature.portal.model.CustomerBillItem
 import com.phpnuxbill.mobile.feature.portal.model.CustomerBuyPlanItem
-import com.phpnuxbill.mobile.feature.portal.model.CustomerModemInfo
+import com.phpnuxbill.mobile.feature.portal.model.CustomerInboxItem
+import com.phpnuxbill.mobile.feature.portal.model.CustomerModemStatusResult
+import com.phpnuxbill.mobile.feature.portal.model.CustomerPackageItem
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPlansData
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPortalDashboard
 import com.phpnuxbill.mobile.feature.portal.model.CustomerTransactionItem
@@ -33,8 +36,11 @@ class CustomerPortalViewModel(
     private val _transactionsState = MutableStateFlow<UiState<List<CustomerTransactionItem>>>(UiState.Idle)
     val transactionsState: StateFlow<UiState<List<CustomerTransactionItem>>> = _transactionsState.asStateFlow()
 
-    private val _modemState = MutableStateFlow<UiState<CustomerModemInfo?>>(UiState.Idle)
-    val modemState: StateFlow<UiState<CustomerModemInfo?>> = _modemState.asStateFlow()
+    private val _modemState = MutableStateFlow<UiState<CustomerModemStatusResult>>(UiState.Idle)
+    val modemState: StateFlow<UiState<CustomerModemStatusResult>> = _modemState.asStateFlow()
+
+    private val _inboxState = MutableStateFlow<UiState<List<CustomerInboxItem>>>(UiState.Idle)
+    val inboxState: StateFlow<UiState<List<CustomerInboxItem>>> = _inboxState.asStateFlow()
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
@@ -75,7 +81,6 @@ class CustomerPortalViewModel(
 
     init {
         loadDashboard()
-        loadModem()
     }
 
     fun clearBanner() {
@@ -93,6 +98,18 @@ class CustomerPortalViewModel(
     fun onWifiInputsChanged(ssid: String, pass: String) {
         _wifiSsidInput.value = ssid
         _wifiPassInput.value = pass
+    }
+
+    fun setAppLanguage(langCode: String) {
+        viewModelScope.launch {
+            sessionStorage.setLanguage(langCode)
+        }
+    }
+
+    fun setAppThemeMode(mode: AppThemeMode) {
+        viewModelScope.launch {
+            sessionStorage.setThemeMode(mode)
+        }
     }
 
     fun openPaymentBill(bill: CustomerBillItem) {
@@ -161,29 +178,212 @@ class CustomerPortalViewModel(
         }
     }
 
+    fun ensureModemLoaded() {
+        if (_modemState.value is UiState.Idle) loadModem()
+    }
+
     fun loadModem() {
         viewModelScope.launch {
-            if (_modemState.value !is UiState.Success) _modemState.value = UiState.Loading
+            _modemState.value = UiState.Loading
             when (val res = repository.getCustomerModem()) {
                 is ApiResult.Success -> {
                     _modemState.value = UiState.Success(res.data)
-                    val modem = res.data
+                    val modem = res.data.info
                     if (modem != null && _wifiSsidInput.value.isBlank()) {
                         _wifiSsidInput.value = modem.currentSsid
                         _wifiPassInput.value = modem.currentPassword
                     }
                 }
-                is ApiResult.Error -> _modemState.value = UiState.Success(null)
+                is ApiResult.Error -> _modemState.value = UiState.Error(res.message)
+            }
+        }
+    }
+
+    fun loadInbox() {
+        viewModelScope.launch {
+            if (_inboxState.value !is UiState.Success) _inboxState.value = UiState.Loading
+            when (val res = repository.getInbox()) {
+                is ApiResult.Success -> _inboxState.value = UiState.Success(res.data)
+                is ApiResult.Error -> _inboxState.value = UiState.Error(res.message)
+            }
+        }
+    }
+
+    fun markInboxRead(item: CustomerInboxItem) {
+        if (item.isRead) return
+        viewModelScope.launch {
+            when (repository.markInboxRead(item.id)) {
+                is ApiResult.Success -> {
+                    val curr = (_inboxState.value as? UiState.Success)?.data
+                    if (curr != null) {
+                        _inboxState.value = UiState.Success(
+                            curr.map { if (it.id == item.id) it.copy(isRead = true) else it }
+                        )
+                    }
+                    loadDashboard(isPullRefresh = true)
+                }
+                is ApiResult.Error -> Unit
+            }
+        }
+    }
+
+    fun deleteInbox(id: Int) {
+        viewModelScope.launch {
+            when (val res = repository.deleteInbox(id)) {
+                is ApiResult.Success -> {
+                    _bannerMessage.value = res.message
+                    loadInbox()
+                    loadDashboard(isPullRefresh = true)
+                }
+                is ApiResult.Error -> _bannerMessage.value = res.message
+            }
+        }
+    }
+
+    fun transferBalance(username: String, amount: Double, onSuccess: () -> Unit) {
+        if (_isSubmitting.value) return
+        viewModelScope.launch {
+            _isSubmitting.value = true
+            when (val res = repository.transferBalance(username, amount)) {
+                is ApiResult.Success -> {
+                    _isSubmitting.value = false
+                    _bannerMessage.value = res.message
+                    loadDashboard(isPullRefresh = true)
+                    loadTransactions(isPullRefresh = true)
+                    onSuccess()
+                }
+                is ApiResult.Error -> {
+                    _isSubmitting.value = false
+                    _bannerMessage.value = res.message
+                }
+            }
+        }
+    }
+
+    fun sendPlanToFriend(username: String, planId: Int, onSuccess: () -> Unit) {
+        if (_isSubmitting.value) return
+        viewModelScope.launch {
+            _isSubmitting.value = true
+            when (val res = repository.sendPlanToFriend(username, planId)) {
+                is ApiResult.Success -> {
+                    _isSubmitting.value = false
+                    _bannerMessage.value = res.message
+                    loadDashboard(isPullRefresh = true)
+                    loadTransactions(isPullRefresh = true)
+                    onSuccess()
+                }
+                is ApiResult.Error -> {
+                    _isSubmitting.value = false
+                    _bannerMessage.value = res.message
+                }
+            }
+        }
+    }
+
+    fun syncPlanToRouter() {
+        if (_isSubmitting.value) return
+        viewModelScope.launch {
+            _isSubmitting.value = true
+            when (val res = repository.syncPlanToRouter()) {
+                is ApiResult.Success -> _bannerMessage.value = res.message
+                is ApiResult.Error -> _bannerMessage.value = res.message
+            }
+            _isSubmitting.value = false
+        }
+    }
+
+    fun extendExpiredPlan(rechargeId: Int) {
+        if (_isSubmitting.value) return
+        viewModelScope.launch {
+            _isSubmitting.value = true
+            when (val res = repository.extendExpiredPlan(rechargeId)) {
+                is ApiResult.Success -> {
+                    _bannerMessage.value = res.message
+                    loadDashboard(isPullRefresh = true)
+                }
+                is ApiResult.Error -> _bannerMessage.value = res.message
+            }
+            _isSubmitting.value = false
+        }
+    }
+
+    fun saveProfile(
+        fullname: String,
+        address: String,
+        phonenumber: String,
+        email: String,
+        photoBase64: String,
+        onSuccess: () -> Unit
+    ) {
+        if (_isSubmitting.value) return
+        viewModelScope.launch {
+            _isSubmitting.value = true
+            when (val res = repository.saveProfile(fullname, address, phonenumber, email, photoBase64)) {
+                is ApiResult.Success -> {
+                    _isSubmitting.value = false
+                    _bannerMessage.value = res.message
+                    loadDashboard(isPullRefresh = true)
+                    onSuccess()
+                }
+                is ApiResult.Error -> {
+                    _isSubmitting.value = false
+                    _bannerMessage.value = res.message
+                }
+            }
+        }
+    }
+
+    fun changePassword(
+        oldPassword: String,
+        newPassword: String,
+        confirmPassword: String,
+        onSuccess: () -> Unit
+    ) {
+        if (_isSubmitting.value) return
+        viewModelScope.launch {
+            _isSubmitting.value = true
+            when (val res = repository.changePassword(oldPassword, newPassword, confirmPassword)) {
+                is ApiResult.Success -> {
+                    _isSubmitting.value = false
+                    _bannerMessage.value = res.message
+                    onSuccess()
+                }
+                is ApiResult.Error -> {
+                    _isSubmitting.value = false
+                    _bannerMessage.value = res.message
+                }
+            }
+        }
+    }
+
+    fun openRenewForPackage(pkg: CustomerPackageItem, onFallbackToPlansTab: () -> Unit) {
+        viewModelScope.launch {
+            var plans = (_plansState.value as? UiState.Success)?.data
+            if (plans == null) {
+                when (val res = repository.getPortalPlans()) {
+                    is ApiResult.Success -> {
+                        plans = res.data
+                        _plansState.value = UiState.Success(res.data)
+                    }
+                    is ApiResult.Error -> {
+                        onFallbackToPlansTab()
+                        return@launch
+                    }
+                }
+            }
+            val matched = plans.internetPlans.find { it.id == pkg.planId }
+                ?: plans.internetPlans.find { it.namePlan.equals(pkg.namebp, ignoreCase = true) }
+            if (matched != null) {
+                openCheckoutForPlan(matched)
+            } else {
+                onFallbackToPlansTab()
             }
         }
     }
 
     fun refreshActiveTab(tabIndex: Int) {
         when (tabIndex) {
-            0 -> {
-                loadDashboard(isPullRefresh = true)
-                loadModem()
-            }
+            0 -> loadDashboard(isPullRefresh = true)
             1 -> loadPlans(isPullRefresh = true)
             2 -> loadTransactions(isPullRefresh = true)
             3 -> loadModem()
@@ -263,11 +463,9 @@ class CustomerPortalViewModel(
                     _checkoutPlan.value = null
                     val createdBill = res.data
                     if (createdBill != null && createdBill.id > 0) {
-                        // Langsung buka Layar Pembayaran Penuh
                         _activePaymentBill.value = createdBill
                         loadDashboard(isPullRefresh = true)
                     } else {
-                        // Pembayaran via Saldo (lunas instan)
                         _bannerMessage.value = res.message
                         loadDashboard(isPullRefresh = true)
                         loadTransactions(isPullRefresh = true)
@@ -309,36 +507,36 @@ class CustomerPortalViewModel(
         }
     }
 
-fun checkBillStatus(billId: Int, silent: Boolean = false) {
-    if (isCheckRequestInFlight) return
-    viewModelScope.launch {
-        isCheckRequestInFlight = true
-        if (!silent) _isCheckingPayment.value = true
-        try {
-            when (val res = repository.checkBillStatus(billId)) {
-                is ApiResult.Success -> {
-                    val (isPaid, updatedBill) = res.data
-                    if (updatedBill != null && _activePaymentBill.value?.id == updatedBill.id) {
-                        _activePaymentBill.value = updatedBill
+    fun checkBillStatus(billId: Int, silent: Boolean = false) {
+        if (isCheckRequestInFlight) return
+        viewModelScope.launch {
+            isCheckRequestInFlight = true
+            if (!silent) _isCheckingPayment.value = true
+            try {
+                when (val res = repository.checkBillStatus(billId)) {
+                    is ApiResult.Success -> {
+                        val (isPaid, updatedBill) = res.data
+                        if (updatedBill != null && _activePaymentBill.value?.id == updatedBill.id) {
+                            _activePaymentBill.value = updatedBill
+                        }
+                        if (isPaid) {
+                            _bannerMessage.value = res.message
+                            loadDashboard(isPullRefresh = true)
+                            loadTransactions(isPullRefresh = true)
+                        } else if (!silent) {
+                            _bannerMessage.value = res.message
+                        }
                     }
-                    if (isPaid) {
-                        _bannerMessage.value = res.message
-                        loadDashboard(isPullRefresh = true)
-                        loadTransactions(isPullRefresh = true)
-                    } else if (!silent) {
-                        _bannerMessage.value = res.message
+                    is ApiResult.Error -> {
+                        if (!silent) _bannerMessage.value = res.message
                     }
                 }
-                is ApiResult.Error -> {
-                    if (!silent) _bannerMessage.value = res.message
-                }
+            } finally {
+                isCheckRequestInFlight = false
+                if (!silent) _isCheckingPayment.value = false
             }
-        } finally {
-            isCheckRequestInFlight = false
-            if (!silent) _isCheckingPayment.value = false
         }
     }
-}
 
     fun cancelBill(billId: Int) {
         viewModelScope.launch {
@@ -356,7 +554,7 @@ fun checkBillStatus(billId: Int, silent: Boolean = false) {
     }
 
     fun saveWifi() {
-        val modem = (_modemState.value as? UiState.Success)?.data
+        val modem = (_modemState.value as? UiState.Success)?.data?.info
         val ssid = _wifiSsidInput.value.trim()
         if (ssid.isBlank()) return
         viewModelScope.launch {
@@ -379,7 +577,7 @@ fun checkBillStatus(billId: Int, silent: Boolean = false) {
     }
 
     fun rebootModem() {
-        val deviceId = (_modemState.value as? UiState.Success)?.data?.deviceId.orEmpty()
+        val deviceId = (_modemState.value as? UiState.Success)?.data?.info?.deviceId.orEmpty()
         viewModelScope.launch {
             when (val res = repository.rebootCustomerModem(deviceId)) {
                 is ApiResult.Success -> _bannerMessage.value = res.message
@@ -389,7 +587,7 @@ fun checkBillStatus(billId: Int, silent: Boolean = false) {
     }
 
     fun summonModem() {
-        val deviceId = (_modemState.value as? UiState.Success)?.data?.deviceId.orEmpty()
+        val deviceId = (_modemState.value as? UiState.Success)?.data?.info?.deviceId.orEmpty()
         viewModelScope.launch {
             when (val res = repository.summonCustomerModem(deviceId)) {
                 is ApiResult.Success -> {
