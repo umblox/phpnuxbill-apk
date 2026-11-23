@@ -34,7 +34,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.CameraAlt
+import androidx.compose.material.icons.outlined.CardGiftcard
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Drafts
 import androidx.compose.material.icons.outlined.Lock
@@ -668,20 +671,61 @@ fun TransferBalanceDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (isEn) "Transfer Balance" else "Transfer Saldo") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "${if (isEn) "Available balance" else "Saldo tersedia"}: ${formatMoney(currency, currentBalance)}",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
+        shape = RoundedCornerShape(22.dp),
+        titleContentColor = MaterialTheme.colorScheme.onSurface,
+        textContentColor = MaterialTheme.colorScheme.onSurface,
+        icon = {
+            Box(
+                modifier = Modifier
+                    .size(46.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.Send,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
                 )
-                if (minimumTransfer > 0.0) {
-                    Text(
-                        text = "${if (isEn) "Minimum transfer" else "Minimal transfer"}: ${formatMoney(currency, minimumTransfer)}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+            }
+        },
+        title = {
+            Text(
+                text = if (isEn) "Transfer Balance" else "Transfer Saldo",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = if (isEn) "Available Balance" else "Saldo Tersedia",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = formatMoney(currency, currentBalance),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        if (minimumTransfer > 0.0) {
+                            Text(
+                                text = "${if (isEn) "Min. transfer" else "Min. transfer"}: ${formatMoney(currency, minimumTransfer)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
                 OutlinedTextField(
                     value = targetUser,
@@ -705,13 +749,19 @@ fun TransferBalanceDialog(
         confirmButton = {
             Button(
                 onClick = { onConfirm(targetUser, parsedAmount) },
-                enabled = !isSubmitting && isValid
+                enabled = !isSubmitting && isValid,
+                shape = RoundedCornerShape(12.dp)
             ) {
                 Text(if (isEn) "Send" else "Kirim")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(strings.cancel) }
+            OutlinedButton(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(strings.cancel)
+            }
         }
     )
 }
@@ -732,17 +782,58 @@ fun SendPlanToFriendDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (isEn) "Buy Plan for Friend" else "Belikan Paket Teman") },
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
+        shape = RoundedCornerShape(22.dp),
+        titleContentColor = MaterialTheme.colorScheme.onSurface,
+        textContentColor = MaterialTheme.colorScheme.onSurface,
+        icon = {
+            Box(
+                modifier = Modifier
+                    .size(46.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.CardGiftcard,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary
+                )
+            }
+        },
+        title = {
+            Text(
+                text = if (isEn) "Buy Plan for Friend" else "Belikan Paket Teman",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text(
-                    text = "${if (isEn) "Paid using balance" else "Dibayar memakai saldo"}: ${formatMoney(currency, currentBalance)}",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = if (isEn) "Paid via Account Balance" else "Dibayar Memakai Saldo",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = formatMoney(currency, currentBalance),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
                 OutlinedTextField(
                     value = friendUsername,
                     onValueChange = { friendUsername = it },
@@ -752,48 +843,84 @@ fun SendPlanToFriendDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
                 Text(
-                    text = if (isEn) "Choose package (optional — leave Auto to renew friend's current plan):"
-                    else "Pilih paket (opsional — biarkan Otomatis untuk memperpanjang paket teman):",
+                    text = if (isEn) "Choose package (leave Auto to renew friend's current plan):"
+                    else "Pilih paket (biarkan Otomatis untuk memperpanjang paket teman):",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                val autoSelected = selectedPlanId == 0
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = if (selectedPlanId == 0) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (autoSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f) else MaterialTheme.colorScheme.background,
+                    border = BorderStroke(
+                        width = if (autoSelected) 1.5.dp else 1.dp,
+                        color = if (autoSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { selectedPlanId = 0 }
                 ) {
-                    Text(
-                        text = if (isEn) "Auto (Friend's last package)" else "Otomatis (Paket terakhir teman)",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = if (selectedPlanId == 0) FontWeight.Bold else FontWeight.Normal,
-                        modifier = Modifier.padding(10.dp)
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isEn) "Auto (Friend's last package)" else "Otomatis (Paket terakhir teman)",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = if (autoSelected) FontWeight.Bold else FontWeight.Medium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (autoSelected) {
+                            Icon(
+                                imageVector = Icons.Outlined.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
                 }
+
                 availablePlans.forEach { p ->
                     val canAfford = currentBalance >= p.price
-                    val picked = selectedPlanId == p.id
+                    val picked = selectedPlanId == p.id && canAfford
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = if (picked) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (picked) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f) else MaterialTheme.colorScheme.background,
+                        border = BorderStroke(
+                            width = if (picked) 1.5.dp else 1.dp,
+                            color = if (picked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                        ),
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable(enabled = canAfford) { selectedPlanId = p.id }
                     ) {
                         Row(
-                            modifier = Modifier.padding(10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = p.namePlan,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = if (picked) FontWeight.Bold else FontWeight.Normal,
-                                modifier = Modifier.weight(1f)
-                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = p.namePlan,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (picked) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (canAfford) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (p.validity.isNotBlank()) {
+                                    Text(
+                                        text = p.validity,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                             Text(
                                 text = formatMoney(currency, p.price),
-                                style = MaterialTheme.typography.labelMedium,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
                                 color = if (canAfford) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                             )
                         }
@@ -804,13 +931,19 @@ fun SendPlanToFriendDialog(
         confirmButton = {
             Button(
                 onClick = { onConfirm(friendUsername, selectedPlanId) },
-                enabled = !isSubmitting && friendUsername.isNotBlank()
+                enabled = !isSubmitting && friendUsername.isNotBlank(),
+                shape = RoundedCornerShape(12.dp)
             ) {
                 Text(if (isEn) "Send Plan" else "Kirim Paket")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(strings.cancel) }
+            OutlinedButton(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(strings.cancel)
+            }
         }
     )
 }
