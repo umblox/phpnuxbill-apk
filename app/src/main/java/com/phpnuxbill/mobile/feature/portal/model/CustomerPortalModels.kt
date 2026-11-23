@@ -175,3 +175,15 @@ data class CustomerPortalDashboard(
     val activePackages: List<CustomerPackageItem> = emptyList(),
     val unpaidBill: CustomerBillItem? = null
 )
+
+data class FriendPlanLookupResult(
+    val username: String,
+    val fullname: String,
+    val serviceType: String,
+    val hasActivePlan: Boolean = false,
+    val activePlanId: Int = 0,
+    val activePlanName: String = "",
+    val activeExpiration: String = "",
+    val lastPlan: CustomerBuyPlanItem? = null,
+    val eligiblePlans: List<CustomerBuyPlanItem> = emptyList()
+)
