@@ -156,6 +156,9 @@ class RemoteCustomerPortalRepository(
                         type = o.str("type"),
                         validity = o.str("validity"),
                         bandwidth = o.str("bandwidth"),
+                        isBurstSpeed = o.boolVal("is_burst_speed"),
+                        sharedUsers = o.intVal("shared_users").coerceAtLeast(1),
+                        quotaLabel = o.str("quota_label").ifBlank { "Unlimited" },
                         routers = o.str("routers")
                     )
                 }.orEmpty().sortedBy { it.price }
@@ -166,6 +169,7 @@ class RemoteCustomerPortalRepository(
                         id = o.intVal("id"),
                         namePlan = o.str("name_plan"),
                         price = o.doubleVal("price"),
+                        priceOld = o.doubleVal("price_old"),
                         type = "Balance",
                         validity = o.str("validity")
                     )
