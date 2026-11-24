@@ -51,7 +51,8 @@ import com.phpnuxbill.mobile.feature.dashboard.ui.DashboardViewModel
 import com.phpnuxbill.mobile.feature.network.ui.GenieAcsScreen
 import com.phpnuxbill.mobile.feature.network.ui.MikrotikMonitorScreen
 import com.phpnuxbill.mobile.feature.network.ui.NetworkGenieAcsViewModel
-import com.phpnuxbill.mobile.feature.operations.ui.CouponsAndAssetsScreen
+import com.phpnuxbill.mobile.feature.operations.ui.AssetsScreen
+import com.phpnuxbill.mobile.feature.operations.ui.CouponsScreen
 import com.phpnuxbill.mobile.feature.operations.ui.MessagesAndPagesScreen
 import com.phpnuxbill.mobile.feature.operations.ui.NetworkMapScreen
 import com.phpnuxbill.mobile.feature.operations.ui.OperationsViewModel
@@ -436,12 +437,19 @@ private fun AuthenticatedAdminShell(
                 )
                 PaymentGatewayScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
             }
-            AdminDestination.COUPONS_ASSETS -> {
+            AdminDestination.COUPONS -> {
                 val vm: OperationsViewModel = viewModel(
                     key = "ops_$sessionKey",
                     factory = OperationsViewModel.Factory(container.operationsRepository, container.sessionStorage)
                 )
-                CouponsAndAssetsScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
+                CouponsScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
+            }
+            AdminDestination.ASSETS -> {
+                val vm: OperationsViewModel = viewModel(
+                    key = "ops_$sessionKey",
+                    factory = OperationsViewModel.Factory(container.operationsRepository, container.sessionStorage)
+                )
+                AssetsScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
             }
             AdminDestination.MAP -> {
                 val vm: OperationsViewModel = viewModel(
