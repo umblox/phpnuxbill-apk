@@ -3,6 +3,7 @@ package com.phpnuxbill.mobile.feature.dashboard.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -78,6 +79,7 @@ import com.phpnuxbill.mobile.feature.dashboard.model.AdminServerFlags
 fun AdminDrawerSheetContent(
     session: SessionState,
     adminPhotoUrl: String,
+    onOpenAccount: () -> Unit = {},
     featureFlags: AdminServerFlags,
     currentDestination: AdminDestination,
     onSelectDestination: (AdminDestination) -> Unit,
@@ -143,7 +145,10 @@ fun AdminDrawerSheetContent(
                         shape = RoundedCornerShape(14.dp),
                         color = Color.White.copy(alpha = 0.14f),
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.22f)),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable(onClick = onOpenAccount)
                     ) {
                         Row(
                             modifier = Modifier.padding(10.dp),
