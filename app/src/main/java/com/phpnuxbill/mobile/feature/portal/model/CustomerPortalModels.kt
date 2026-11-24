@@ -50,7 +50,10 @@ data class CustomerPackageItem(
     val time: String,
     val rechargedOn: String,
     val routers: String,
-    val type: String
+    val type: String,
+    val price: Double = 0.0,
+    val validity: String = "",
+    val planEnabled: Boolean = true
 )
 
 data class CustomerBuyPlanItem(
