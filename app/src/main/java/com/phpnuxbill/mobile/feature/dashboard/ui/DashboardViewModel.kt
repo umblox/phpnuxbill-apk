@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.phpnuxbill.mobile.core.datastore.SessionStorage
 import com.phpnuxbill.mobile.core.model.ApiResult
+import com.phpnuxbill.mobile.core.model.AppThemeMode
 import com.phpnuxbill.mobile.core.model.UiState
 import com.phpnuxbill.mobile.feature.dashboard.data.DashboardRepository
 import com.phpnuxbill.mobile.feature.dashboard.model.DashboardData
@@ -37,18 +38,22 @@ class DashboardViewModel(
             }
 
             when (val res = dashboardRepository.fetchAdminDashboard()) {
-                is ApiResult.Success -> {
-                    _uiState.value = UiState.Success(res.data)
-                }
+                is ApiResult.Success -> _uiState.value = UiState.Success(res.data)
                 is ApiResult.Error -> {
                     if (res.isUnauthorized) {
                         sessionStorage.clearActiveToken()
-                    } else {
+                    } else if (_uiState.value !is UiState.Success) {
                         _uiState.value = UiState.Error(res.message)
                     }
                 }
             }
             _isRefreshing.value = false
+        }
+    }
+
+    fun setAppThemeMode(mode: AppThemeMode) {
+        viewModelScope.launch {
+            sessionStorage.setThemeMode(mode)
         }
     }
 
