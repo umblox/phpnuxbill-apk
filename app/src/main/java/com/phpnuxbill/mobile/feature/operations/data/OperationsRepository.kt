@@ -582,6 +582,7 @@ condition = o.str("condition").ifBlank { "Good" }
                         assetsCount = aCnt,
                         coveredCustomersCount = coveredCnt,
                         uncoveredCustomersCount = uncoveredCnt,
+                        unmappedRoutersCount = root?.getAsJsonObject("summary").intVal("unmapped_routers"),
                         points = points
                     ),
                     message = res.message
