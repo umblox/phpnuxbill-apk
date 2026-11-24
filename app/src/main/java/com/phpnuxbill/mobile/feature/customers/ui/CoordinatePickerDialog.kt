@@ -52,10 +52,15 @@ import com.phpnuxbill.mobile.feature.customers.model.CustomerLabels
 import com.phpnuxbill.mobile.feature.customers.model.RouterCoordHint
 import java.util.Locale
 
+private fun wrapLongitude(lng: Double): Double {
+    return if (lng in -180.0..180.0) lng
+    else ((((lng + 180.0) % 360.0) + 360.0) % 360.0) - 180.0
+}
+
 private fun isValidGps(lat: Double?, lng: Double?): Boolean {
     if (lat == null || lng == null) return false
     if (lat == 0.0 && lng == 0.0) return false
-    return lat in -90.0..90.0 && lng in -180.0..180.0
+    return lat in -90.0..90.0
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -73,6 +78,7 @@ fun CoordinatePickerDialog(
 
     val validRouters = remember(routerHints) {
         routerHints.filter { isValidGps(it.lat, it.lng) }
+            .map { it.copy(lng = wrapLongitude(it.lng)) }
     }
 
     val parsedInit = remember(initialCoordinates, validRouters) {
@@ -80,7 +86,7 @@ fun CoordinatePickerDialog(
         val lat = parts.getOrNull(0)?.toDoubleOrNull()
         val lng = parts.getOrNull(1)?.toDoubleOrNull()
         when {
-            isValidGps(lat, lng) -> lat!! to lng!!
+            isValidGps(lat, lng) -> lat!! to wrapLongitude(lng!!)
             validRouters.isNotEmpty() -> validRouters.first().lat to validRouters.first().lng
             else -> -6.966667 to 110.416664
         }
