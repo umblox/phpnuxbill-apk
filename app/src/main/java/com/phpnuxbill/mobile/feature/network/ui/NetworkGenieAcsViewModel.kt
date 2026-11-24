@@ -462,8 +462,11 @@ class NetworkGenieAcsViewModel(
         loadGenieAcsDevices()
     }
 
-    fun onSelectGenieHost(hostId: String) {
+fun onSelectGenieHost(hostId: String) {
+        if (_selectedGenieHostId.value == hostId) return
         _selectedGenieHostId.value = hostId
+        _genieStatusFilter.value = "all"
+        _genieStats.value = GenieAcsStats()
         loadGenieAcsDevices()
     }
 
@@ -486,14 +489,15 @@ class NetworkGenieAcsViewModel(
                         val active = hosts.find { it.active } ?: hosts.firstOrNull()
                         if (active != null) _selectedGenieHostId.value = active.id
                     }
-                    _genieStats.value = stats
+                    if (stats != null) {
+                        _genieStats.value = stats
+                    }
                     _genieDevicesState.value = UiState.Success(devices)
                 }
                 is ApiResult.Error -> {
                     if (res.isUnauthorized) {
                         sessionStorage.clearActiveToken()
                     } else {
-                        // Tetap muat daftar host agar tombol kelola host tetap tampil jika server belum diset
                         when (val hRes = repository.getGenieAcsHosts()) {
                             is ApiResult.Success -> _genieHosts.value = hRes.data.first
                             else -> {}
