@@ -175,7 +175,9 @@ data class MapPointItem(
     val coveredCount: Int = 0,
     val routerName: String = "",
     val phone: String = "",
-    val serviceType: String = ""
+    val serviceType: String = "",
+    val status: String = "",
+    val condition: String = ""
 )
 
 data class NetworkMapData(
@@ -185,7 +187,8 @@ data class NetworkMapData(
     val assetsCount: Int = 0,
     val coveredCustomersCount: Int = 0,
     val uncoveredCustomersCount: Int = 0,
-    val points: List<MapPointItem> = emptyList()
+    val points: List<MapPointItem> = emptyList(),
+    val unmappedRoutersCount: Int = 0
 )
 
 // =========================================================================
