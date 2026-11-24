@@ -344,46 +344,61 @@ class RemoteOperationsRepository(
         return when (val res = networkGateway.get(action = "admin_assets")) {
             is ApiResult.Error -> res
             is ApiResult.Success -> {
-                val root = res.data.asObjOrNull()
+                val root = res.data?.asObjOrNull()
                 val totalVal = root?.getAsJsonObject("summary").doubleVal("total_value")
-                val list = root?.getAsJsonArray("assets")?.mapNotNull { el ->
-                    val o = el.asObjOrNull() ?: return@mapNotNull null
-                    AssetItem(
-                        id = o.intVal("id"),
-                        name = o.str("name"),
-                        category = o.str("category"),
-                        brand = o.str("brand"),
-                        serialNumber = o.str("serial_number"),
-                        cost = o.doubleVal("cost"),
-                        location = o.str("location"),
-                        coordinates = o.str("coordinates"),
-                        conditionStatus = o.str("condition_status").ifBlank { "Good" },
-                        purchaseDate = o.str("purchase_date"),
-                        notes = o.str("notes")
+                val list = mutableListOf<AssetItem>()
+                root?.getAsJsonArray("assets")?.forEach { el ->
+                    val o = el.asObjOrNull() ?: return@forEach
+                    val parsedCost = o.doubleVal("purchase_cost").let { if (it != 0.0) it else o.doubleVal("cost") }
+                    list.add(
+                        AssetItem(
+                            id = o.intVal("id"),
+                            name = o.str("name"),
+                            category = o.str("category").ifBlank { "Network Equipment" },
+                            brand = o.str("brand"),
+                            serialNumber = o.str("serial_number"),
+                            cost = parsedCost,
+                            location = o.str("location"),
+                            coordinates = o.str("coordinates"),
+                            conditionStatus = o.str("condition_status").ifBlank { "Good" },
+                            purchaseDate = o.str("purchase_date"),
+                            notes = o.str("notes"),
+                            assetTag = o.str("asset_tag"),
+                            modelName = o.str("model_name"),
+                            status = o.str("status").ifBlank { "Active" },
+                            warrantyExpiry = o.str("warranty_expiry"),
+                            assignedToName = o.str("assigned_to_name")
+                        )
                     )
-                }.orEmpty()
-                ApiResult.Success(totalVal to list, res.message)
+                }
+                ApiResult.Success(data = totalVal to list, message = res.message)
             }
         }
     }
 
     override suspend fun saveAsset(form: AssetFormState): ApiResult<String> {
+        val costVal = form.cost.trim().toDoubleOrNull() ?: 0.0
         val payload = buildMap<String, Any> {
             put("id", form.id)
+            if (form.assetTag.isNotBlank()) put("asset_tag", form.assetTag.trim())
             put("name", form.name.trim())
-            put("category", form.category.trim())
-            put("brand", form.brand.trim())
+            put("category", form.category.trim().ifBlank { "Network Equipment" })
+            put("brand", form.brand.trim().ifBlank { "Generic" })
+            put("model_name", form.modelName.trim().ifBlank { "Standard" })
             put("serial_number", form.serialNumber.trim())
-            put("cost", form.cost.trim().toDoubleOrNull() ?: 0.0)
+            put("cost", costVal)
+            put("purchase_cost", costVal)
+            if (form.purchaseDate.isNotBlank()) put("purchase_date", form.purchaseDate.trim())
+            if (form.warrantyExpiry.isNotBlank()) put("warranty_expiry", form.warrantyExpiry.trim())
             put("location", form.location.trim())
             put("coordinates", form.coordinates.trim())
-            put("condition_status", form.conditionStatus)
-            if (form.purchaseDate.isNotBlank()) put("purchase_date", form.purchaseDate.trim())
+            put("status", form.status.ifBlank { "Active" })
+            put("condition_status", form.conditionStatus.ifBlank { "Good" })
             put("notes", form.notes.trim())
         }
         return when (val res = networkGateway.postJson(action = "admin_asset_save", body = payload)) {
             is ApiResult.Error -> res
-            is ApiResult.Success -> ApiResult.Success(res.message, res.message)
+            is ApiResult.Success -> ApiResult.Success(data = res.message, message = res.message)
         }
     }
 
