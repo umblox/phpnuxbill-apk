@@ -407,6 +407,7 @@ fun ActiveCustomerDetailScreen(
 
                     // 4. DATA BILLING & LANGGANAN LENGKAP
                     item(key = "billing_info") {
+                      if (d.customerId > 0 || d.packageId > 0) {
                         val daysLeft = remember(d.expiration) { calcServiceDaysRemaining(d.expiration) }
                         val expBadge = remember(daysLeft, isPkgOn, isEn) {
                             formatRemainingDaysLabel(daysLeft, isPkgOn, isEn)
@@ -449,6 +450,22 @@ fun ActiveCustomerDetailScreen(
                                 )
                             }
                         }
+                    }
+                } else {
+                         DetailInfoCard(
+                             title = labels.billingInfoTitle,
+                             icon = Icons.Outlined.AccountBalanceWallet
+                         ) {
+                             Text(
+                                 text = if (isEn) {
+                                     "Direct MikroTik session (voucher or manual router account, not linked to a billing customer profile)."
+                                 } else {
+                                     "Sesi langsung MikroTik (voucher lepas atau akun manual router, tidak terikat ke profil pelanggan billing)."
+                                 },
+                                 style = MaterialTheme.typography.bodySmall,
+                                 color = MaterialTheme.colorScheme.onSurfaceVariant
+                             )
+                         }
                     }
 
                     // 5. ATRIBUT TAMBAHAN (CUSTOM FIELDS)
