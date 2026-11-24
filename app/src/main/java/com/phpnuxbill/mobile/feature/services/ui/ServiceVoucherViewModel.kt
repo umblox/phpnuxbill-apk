@@ -12,6 +12,7 @@ import com.phpnuxbill.mobile.core.printer.PrintResult
 import com.phpnuxbill.mobile.feature.services.data.ServiceVoucherRepository
 import com.phpnuxbill.mobile.feature.services.model.ActiveCustomerDetailData
 import com.phpnuxbill.mobile.feature.services.model.ActiveServiceSheetMode
+import com.phpnuxbill.mobile.feature.services.model.CustomerOption
 import com.phpnuxbill.mobile.feature.services.model.DepositFormState
 import com.phpnuxbill.mobile.feature.services.model.EditPrepaidFormState
 import com.phpnuxbill.mobile.feature.services.model.GenerateVoucherFormState
@@ -345,35 +346,185 @@ class ServiceVoucherViewModel(
         }
     }
 
-    fun openRechargeForm(prefillCustomerId: Int = 0, prefillPlanId: Int = 0) {
+    private fun normalizeServiceTypeFilter(raw: String?): String {
+        return when (raw?.trim()?.lowercase()) {
+            "hotspot" -> "Hotspot"
+            "pppoe" -> "PPPoE"
+            "vpn" -> "VPN"
+            else -> "All"
+        }
+    }
+
+    private fun pickMatchingPlanId(
+        plans: List<com.phpnuxbill.mobile.feature.services.model.ServicePlanOption>,
+        serviceType: String,
+        server: String,
+        preferredPlanId: Int = 0
+    ): Int {
+        val filtered = plans.filter { p ->
+            val typeOk = serviceType.equals("All", true) || p.type.equals(serviceType, true)
+            val srvOk = server.isBlank() || p.routers.equals(server, true)
+            typeOk && srvOk
+        }
+        return filtered.find { it.id == preferredPlanId }?.id
+            ?: filtered.firstOrNull()?.id
+            ?: 0
+    }
+
+    fun openRechargeForm(
+        prefillCustomerId: Int = 0,
+        prefillPlanId: Int = 0,
+        prefillServer: String = "",
+        prefillServiceType: String = "",
+        prefillFullname: String = "",
+        prefillUsername: String = "",
+        lockCustomer: Boolean = (prefillCustomerId > 0)
+    ) {
         loadMetadata()
         val meta = _metadata.value
-        val cust = meta.customers.find { it.id == prefillCustomerId } ?: meta.customers.firstOrNull()
-        val plan = meta.internetPlans.find { it.id == prefillPlanId } ?: meta.internetPlans.firstOrNull()
+        val cust = if (prefillCustomerId > 0) meta.customers.find { it.id == prefillCustomerId } else null
+        val targetType = normalizeServiceTypeFilter(
+            prefillServiceType.ifBlank { cust?.serviceType.orEmpty() }
+        )
+        val matchedPlan = meta.internetPlans.find { it.id == prefillPlanId }
+        val targetServer = prefillServer.takeIf { it.isNotBlank() && it != "-" }
+            ?: matchedPlan?.routers.orEmpty()
+        val resolvedPlanId = pickMatchingPlanId(
+            plans = meta.internetPlans,
+            serviceType = targetType,
+            server = targetServer,
+            preferredPlanId = prefillPlanId
+        )
+
         _rechargeForm.value = RechargeFormState(
             customerId = cust?.id ?: prefillCustomerId,
-            planId = plan?.id ?: prefillPlanId,
+            isCustomerLocked = lockCustomer && prefillCustomerId > 0,
+            lockedCustomerName = cust?.fullname?.ifBlank { prefillFullname } ?: prefillFullname,
+            lockedCustomerUsername = cust?.username?.ifBlank { prefillUsername } ?: prefillUsername,
+            lockedCustomerServiceType = cust?.serviceType?.ifBlank { prefillServiceType } ?: prefillServiceType,
+            lockedCustomerBalance = cust?.balance ?: 0.0,
+            serviceType = targetType,
+            server = targetServer,
+            planId = resolvedPlanId,
             usingMethod = meta.paymentUsings.firstOrNull() ?: "Cash"
         )
         _activeServiceMode.value = ActiveServiceSheetMode.RECHARGE_PLAN
     }
 
-    fun openDepositForm(prefillCustomerId: Int = 0) {
+    fun selectRechargeCustomer(customer: CustomerOption) {
+        val meta = _metadata.value
+        val newType = normalizeServiceTypeFilter(customer.serviceType)
+        val currentServer = _rechargeForm.value.server
+        val hasPlanOnCurrentServer = meta.internetPlans.any { p ->
+            (newType.equals("All", true) || p.type.equals(newType, true)) &&
+                (currentServer.isBlank() || p.routers.equals(currentServer, true))
+        }
+        val effectiveServer = if (hasPlanOnCurrentServer) currentServer else ""
+        val nextPlanId = pickMatchingPlanId(meta.internetPlans, newType, effectiveServer)
+
+        _rechargeForm.update {
+            it.copy(
+                customerId = customer.id,
+                isCustomerLocked = true,
+                lockedCustomerName = customer.fullname,
+                lockedCustomerUsername = customer.username,
+                lockedCustomerServiceType = customer.serviceType,
+                lockedCustomerBalance = customer.balance,
+                customerQuery = "",
+                serviceType = newType,
+                server = effectiveServer,
+                planId = nextPlanId,
+                error = null
+            )
+        }
+    }
+
+    fun unlockRechargeCustomer() {
+        _rechargeForm.update {
+            it.copy(
+                isCustomerLocked = false,
+                customerQuery = "",
+                error = null
+            )
+        }
+    }
+
+    fun selectRechargeServiceType(newType: String) {
+        val meta = _metadata.value
+        val cur = _rechargeForm.value
+        val hasOnServer = meta.internetPlans.any { p ->
+            (newType.equals("All", true) || p.type.equals(newType, true)) &&
+                (cur.server.isBlank() || p.routers.equals(cur.server, true))
+        }
+        val nextServer = if (hasOnServer) cur.server else ""
+        val nextPlanId = pickMatchingPlanId(meta.internetPlans, newType, nextServer, cur.planId)
+        _rechargeForm.update {
+            it.copy(
+                serviceType = newType,
+                server = nextServer,
+                planId = nextPlanId,
+                error = null
+            )
+        }
+    }
+
+    fun selectRechargeServer(serverName: String) {
+        val meta = _metadata.value
+        val cur = _rechargeForm.value
+        val nextPlanId = pickMatchingPlanId(meta.internetPlans, cur.serviceType, serverName, cur.planId)
+        _rechargeForm.update {
+            it.copy(
+                server = serverName,
+                planId = nextPlanId,
+                error = null
+            )
+        }
+    }
+
+    fun openDepositForm(
+        prefillCustomerId: Int = 0,
+        prefillFullname: String = "",
+        prefillUsername: String = "",
+        lockCustomer: Boolean = (prefillCustomerId > 0)
+    ) {
         loadMetadata()
         val meta = _metadata.value
-        val cust = meta.customers.find { it.id == prefillCustomerId } ?: meta.customers.firstOrNull()
+        val cust = if (prefillCustomerId > 0) meta.customers.find { it.id == prefillCustomerId } else null
         _depositForm.value = DepositFormState(
             customerId = cust?.id ?: prefillCustomerId,
+            isCustomerLocked = lockCustomer && prefillCustomerId > 0,
+            lockedCustomerName = cust?.fullname?.ifBlank { prefillFullname } ?: prefillFullname,
+            lockedCustomerUsername = cust?.username?.ifBlank { prefillUsername } ?: prefillUsername,
+            lockedCustomerBalance = cust?.balance ?: 0.0,
             planId = meta.balancePlans.firstOrNull()?.id ?: 0
         )
         _activeServiceMode.value = ActiveServiceSheetMode.DEPOSIT_BALANCE
     }
 
+    fun selectDepositCustomer(customer: CustomerOption) {
+        _depositForm.update {
+            it.copy(
+                customerId = customer.id,
+                isCustomerLocked = true,
+                lockedCustomerName = customer.fullname,
+                lockedCustomerUsername = customer.username,
+                lockedCustomerBalance = customer.balance,
+                customerQuery = "",
+                error = null
+            )
+        }
+    }
+
+    fun unlockDepositCustomer() {
+        _depositForm.update {
+            it.copy(isCustomerLocked = false, customerQuery = "", error = null)
+        }
+    }
+
     fun openRefillForm(prefillCode: String = "") {
         loadMetadata()
-        val meta = _metadata.value
         _refillForm.value = RefillFormState(
-            customerId = meta.customers.firstOrNull()?.id ?: 0,
+            customerId = 0,
             voucherCode = prefillCode
         )
         _activeServiceMode.value = ActiveServiceSheetMode.REFILL_VOUCHER
