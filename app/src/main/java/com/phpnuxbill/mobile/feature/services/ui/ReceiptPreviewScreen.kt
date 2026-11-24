@@ -24,12 +24,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.automirrored.outlined.Send
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -53,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.phpnuxbill.mobile.core.i18n.LocalAppStrings
 import com.phpnuxbill.mobile.core.ui.components.AppScreenScaffold
+import com.phpnuxbill.mobile.core.ui.theme.BrandTeal500
 import com.phpnuxbill.mobile.core.ui.theme.StatusSuccessFgLight
 import com.phpnuxbill.mobile.feature.services.model.InvoiceReceiptData
 import com.phpnuxbill.mobile.feature.services.model.ServiceVoucherLabels
@@ -89,7 +92,10 @@ fun ReceiptPreviewScreen(
     if (showPrinterDialog) {
         AlertDialog(
             onDismissRequest = viewModel::dismissPrinterDialog,
-            title = { Text(labels.selectPrinterTitle) },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
+            shape = RoundedCornerShape(22.dp),
+            title = { Text(labels.selectPrinterTitle, fontWeight = FontWeight.Bold) },
             text = {
                 if (pairedPrinters.isEmpty()) {
                     Text(labels.noPairedPrinter)
@@ -162,7 +168,7 @@ fun ReceiptPreviewScreen(
                         ) {
                             Icon(Icons.Outlined.Print, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(strings.printReceipt)
+                            Text(strings.printReceipt, maxLines = 1)
                         }
 
                         FilledTonalButton(
@@ -183,9 +189,10 @@ fun ReceiptPreviewScreen(
                         OutlinedButton(
                             onClick = {
                                 val digits = receipt.phonenumber.replace(Regex("[^0-9]"), "")
+                                val waNum = if (digits.startsWith("0")) "62${digits.drop(1)}" else digits
                                 val encoded = Uri.encode(receipt.waWebText)
-                                val url = if (digits.isNotBlank()) {
-                                    "https://wa.me/$digits?text=$encoded"
+                                val url = if (waNum.isNotBlank()) {
+                                    "https://wa.me/$waNum?text=$encoded"
                                 } else {
                                     "https://wa.me/?text=$encoded"
                                 }
@@ -209,13 +216,29 @@ fun ReceiptPreviewScreen(
                                 }
                                 context.startActivity(Intent.createChooser(shareIntent, labels.receiptTitle))
                             },
-                            modifier = Modifier.weight(0.7f),
+                            modifier = Modifier.weight(0.75f),
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Icon(Icons.Outlined.Share, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(strings.share)
+                            Text(strings.share, maxLines = 1)
                         }
+                    }
+
+                    Button(
+                        onClick = onClose,
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandTeal500),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                    ) {
+                        Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isEnglish) "Done" else "Selesai",
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
