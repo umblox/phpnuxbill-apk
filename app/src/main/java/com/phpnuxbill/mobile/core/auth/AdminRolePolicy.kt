@@ -114,6 +114,12 @@ object AdminRolePolicy {
     fun canBackupDatabase(level: AdminLevel): Boolean =
         level == AdminLevel.SUPER_ADMIN
 
+    fun canAccessCoupons(level: AdminLevel, flags: AdminServerFlags): Boolean =
+        level.isFullAdmin || (level == AdminLevel.SALES && flags.enableCoupons)
+
+    fun canAccessAssets(level: AdminLevel): Boolean =
+        level.isFullAdmin
+    
     fun isDestinationAllowed(
         destination: AdminDestination,
         level: AdminLevel,
@@ -129,7 +135,8 @@ object AdminRolePolicy {
         AdminDestination.GENIEACS -> canManagePlansAndNetwork(level)
         AdminDestination.REPORTS -> canAccessReports(level)
         AdminDestination.PAYMENT_GATEWAY -> canAccessPaymentGatewayAudit(level)
-        AdminDestination.COUPONS_ASSETS -> level.isFullAdmin
+        AdminDestination.COUPONS -> canAccessCoupons(level, flags)
+        AdminDestination.ASSETS -> canAccessAssets(level)
         AdminDestination.MAP -> true
         AdminDestination.MESSAGES -> canSendMessages(level)
         AdminDestination.SETTINGS -> level.isFullAdmin || level == AdminLevel.AGENT
@@ -167,6 +174,11 @@ object AdminRolePolicy {
                 label = strings.menuVouchers
             ),
             AdminMenuItemSpec(
+                destination = AdminDestination.COUPONS,
+                group = AdminMenuGroup.CUSTOMERS_SERVICES,
+                label = if (isEn) "Promo Coupons" else "Kupon Promo"
+            ),
+            AdminMenuItemSpec(
                 destination = AdminDestination.MESSAGES,
                 group = AdminMenuGroup.CUSTOMERS_SERVICES,
                 label = strings.menuMessages
@@ -197,6 +209,11 @@ object AdminRolePolicy {
                 label = strings.menuMap
             ),
             AdminMenuItemSpec(
+                destination = AdminDestination.ASSETS,
+                group = AdminMenuGroup.PLANS_NETWORK,
+                label = if (isEn) "Asset Manager" else "Inventaris Aset"
+            ),
+            AdminMenuItemSpec(
                 destination = AdminDestination.REPORTS,
                 group = AdminMenuGroup.FINANCE_REPORTS,
                 label = strings.menuReports
@@ -205,11 +222,6 @@ object AdminRolePolicy {
                 destination = AdminDestination.PAYMENT_GATEWAY,
                 group = AdminMenuGroup.FINANCE_REPORTS,
                 label = strings.menuPaymentGateway
-            ),
-            AdminMenuItemSpec(
-                destination = AdminDestination.COUPONS_ASSETS,
-                group = AdminMenuGroup.FINANCE_REPORTS,
-                label = strings.menuCouponsAssets
             ),
             AdminMenuItemSpec(
                 destination = AdminDestination.SETTINGS,
