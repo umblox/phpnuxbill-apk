@@ -49,7 +49,7 @@ interface NetworkGenieAcsRepository {
         hostId: String = "",
         search: String = "",
         statusFilter: String = "all"
-    ): ApiResult<Triple<List<GenieAcsHost>, GenieAcsStats, List<GenieAcsDeviceItem>>>
+    ): ApiResult<Triple<List<GenieAcsHost>, GenieAcsStats?, List<GenieAcsDeviceItem>>>
 
     suspend fun getGenieAcsDeviceDetail(hostId: String, deviceId: String): ApiResult<GenieAcsDeviceDetail>
     suspend fun executeDeviceAction(
@@ -389,7 +389,7 @@ class RemoteNetworkGenieAcsRepository(
         hostId: String,
         search: String,
         statusFilter: String
-    ): ApiResult<Triple<List<GenieAcsHost>, GenieAcsStats, List<GenieAcsDeviceItem>>> {
+    ): ApiResult<Triple<List<GenieAcsHost>, GenieAcsStats?, List<GenieAcsDeviceItem>>> {
         val params = buildMap {
             if (hostId.isNotBlank()) put("host_id", hostId)
             if (search.isNotBlank()) put("search", search.trim())
@@ -409,17 +409,31 @@ class RemoteNetworkGenieAcsRepository(
                     val o = el.asObjOrNull() ?: return@forEach
                     devices.add(parseDeviceItem(o))
                 }
-                val stats = GenieAcsStats(
-                    total = root.intVal("total").let { if (it > 0) it else devices.size },
-                    online = devices.count { it.online },
-                    offline = devices.count { !it.online },
-                    badRxCount = devices.count {
-                        it.isOptical && it.rxPowerStatus in listOf("critical", "los", "warning")
-                    },
-                    highTempCount = devices.count {
-                        it.isOptical && it.tempStatus in listOf("warning", "critical")
-                    }
-                )
+
+                // Prioritaskan objek stats global dari server; fallback hitung lokal hanya saat filter "all"
+                val statsObj = root?.get("stats")?.asObjOrNull()
+                val stats: GenieAcsStats? = when {
+                    statsObj != null -> GenieAcsStats(
+                        total = statsObj.intVal("total"),
+                        online = statsObj.intVal("online"),
+                        offline = statsObj.intVal("offline"),
+                        badRxCount = statsObj.intVal("bad_rx_count"),
+                        highTempCount = statsObj.intVal("high_temp_count")
+                    )
+                    statusFilter.isBlank() || statusFilter.equals("all", ignoreCase = true) -> GenieAcsStats(
+                        total = root.intVal("total").let { if (it > 0) it else devices.size },
+                        online = devices.count { it.online },
+                        offline = devices.count { !it.online },
+                        badRxCount = devices.count {
+                            it.isOptical && it.rxPowerStatus in listOf("critical", "los", "warning")
+                        },
+                        highTempCount = devices.count {
+                            it.isOptical && it.tempStatus in listOf("warning", "critical")
+                        }
+                    )
+                    else -> null
+                }
+
                 ApiResult.Success(data = Triple(hosts, stats, devices), message = res.message)
             }
         }
