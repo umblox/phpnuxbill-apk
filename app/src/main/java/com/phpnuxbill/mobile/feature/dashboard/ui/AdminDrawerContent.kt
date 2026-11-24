@@ -22,6 +22,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.outlined.Send
+import androidx.compose.material.icons.outlined.AccountBalanceWallet
+import androidx.compose.material.icons.outlined.AddCard
 import androidx.compose.material.icons.outlined.Assessment
 import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.ConfirmationNumber
@@ -63,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
 import com.phpnuxbill.mobile.BuildConfig
 import com.phpnuxbill.mobile.core.auth.AdminLevel
+import com.phpnuxbill.mobile.core.auth.AdminMenuGroup
 import com.phpnuxbill.mobile.core.auth.AdminRolePolicy
 import com.phpnuxbill.mobile.core.i18n.AppLanguage
 import com.phpnuxbill.mobile.core.i18n.LocalAppStrings
@@ -81,6 +84,8 @@ fun AdminDrawerSheetContent(
     session: SessionState,
     adminPhotoUrl: String,
     onOpenAccount: () -> Unit = {},
+    onShortcutRecharge: () -> Unit = {},
+    onShortcutDeposit: () -> Unit = {},
     featureFlags: AdminServerFlags,
     currentDestination: AdminDestination,
     onSelectDestination: (AdminDestination) -> Unit,
@@ -261,6 +266,36 @@ fun AdminDrawerSheetContent(
                         onClick = { onSelectDestination(spec.destination) },
                         modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                     )
+                }
+                if (group == AdminMenuGroup.CUSTOMERS_SERVICES && AdminRolePolicy.canRechargeOrDeposit(level)) {
+                    NavigationDrawerItem(
+                        icon = { Icon(imageVector = Icons.Outlined.AddCard, contentDescription = null) },
+                        label = {
+                            Text(
+                                text = if (isEn) "Recharge Customer" else "Isi Ulang Paket",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        selected = false,
+                        onClick = onShortcutRecharge,
+                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                    )
+                    if (featureFlags.enableBalance) {
+                        NavigationDrawerItem(
+                            icon = { Icon(imageVector = Icons.Outlined.AccountBalanceWallet, contentDescription = null) },
+                            label = {
+                                Text(
+                                    text = if (isEn) "Refill Balance" else "Isi Ulang Saldo",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            selected = false,
+                            onClick = onShortcutDeposit,
+                            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.height(4.dp))
             }
