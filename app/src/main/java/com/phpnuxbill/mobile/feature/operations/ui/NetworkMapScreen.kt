@@ -14,12 +14,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,6 +27,7 @@ import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Router
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -65,6 +64,15 @@ import com.phpnuxbill.mobile.core.ui.theme.BrandBlue600
 import com.phpnuxbill.mobile.core.ui.theme.BrandTeal500
 import com.phpnuxbill.mobile.feature.operations.model.MapPointItem
 
+private enum class MapViewMode {
+    ALL,
+    CUSTOMERS,  // Router + Radius + Semua Pelanggan
+    COVERED,    // Router + Radius + Pelanggan Tercover
+    UNCOVERED,  // Router + Radius + Pelanggan Luar Radius
+    ROUTERS,    // Hanya Router + Radius
+    ASSETS      // Hanya ODP & Aset
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun NetworkMapScreen(
@@ -76,13 +84,15 @@ fun NetworkMapScreen(
     val strings = LocalAppStrings.current
     val isEn = strings.langCode == "en"
 
-    var showRouters by remember { mutableStateOf(true) }
-    var showCovered by remember { mutableStateOf(true) }
-    var showUncovered by remember { mutableStateOf(true) }
-    var showOdps by remember { mutableStateOf(true) }
-    var showAssets by remember { mutableStateOf(true) }
+    var viewMode by remember { mutableStateOf(MapViewMode.ALL) }
     var mapLayer by remember { mutableStateOf("standard") } // standard | dark | satellite
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
+    val showRouters = viewMode != MapViewMode.ASSETS
+    val showCovered = viewMode in setOf(MapViewMode.ALL, MapViewMode.CUSTOMERS, MapViewMode.COVERED)
+    val showUncovered = viewMode in setOf(MapViewMode.ALL, MapViewMode.CUSTOMERS, MapViewMode.UNCOVERED)
+    val showOdps = viewMode in setOf(MapViewMode.ALL, MapViewMode.ASSETS)
+    val showAssets = viewMode in setOf(MapViewMode.ALL, MapViewMode.ASSETS)
 
     LaunchedEffect(Unit) {
         viewModel.ensureMapLoaded()
@@ -190,7 +200,40 @@ fun NetworkMapScreen(
                         )
                     }
 
-                    // 2. Filter Layer & Fokus Cepat ke Router
+                    // Peringatan jika ada router yang belum punya koordinat di database web
+                    if (data.routersCount == 0 && data.unmappedRoutersCount > 0) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.WarningAmber,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = if (isEn) {
+                                        "${data.unmappedRoutersCount} router(s) have no GPS coordinates set yet. Set coordinates & coverage in MikroTik → Routers."
+                                    } else {
+                                        "${data.unmappedRoutersCount} router belum diisi koordinat GPS. Isi koordinat & radius coverage di MikroTik → Router & Pool."
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                        }
+                    }
+
+                    // 2. Chip Mode Tampilan (Memilih Pelanggan tetap menampilkan Router + Lingkaran Radiusnya)
                     LazyRow(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -198,44 +241,20 @@ fun NetworkMapScreen(
                             .padding(horizontal = 16.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        item {
+                        val modes = listOf(
+                            MapViewMode.ALL to (if (isEn) "All" else "Semua"),
+                            MapViewMode.CUSTOMERS to "${if (isEn) "Customers" else "Pelanggan"} (${data.customersCount})",
+                            MapViewMode.COVERED to "${if (isEn) "Covered" else "Tercover"} (${data.coveredCustomersCount})",
+                            MapViewMode.UNCOVERED to "${if (isEn) "Out Area" else "Luar Radius"} (${data.uncoveredCustomersCount})",
+                            MapViewMode.ROUTERS to "Router (${data.routersCount})",
+                            MapViewMode.ASSETS to "${if (isEn) "Assets/ODP" else "Aset/ODP"} (${data.assetsCount + data.odpsCount})"
+                        )
+                        items(modes, key = { it.first.name }) { (mode, label) ->
                             FilterChip(
-                                selected = showRouters,
-                                onClick = { showRouters = !showRouters },
-                                label = { Text("Router (${data.routersCount})") }
+                                selected = viewMode == mode,
+                                onClick = { viewMode = mode },
+                                label = { Text(label) }
                             )
-                        }
-                        item {
-                            FilterChip(
-                                selected = showCovered,
-                                onClick = { showCovered = !showCovered },
-                                label = { Text("${if (isEn) "Covered" else "Tercover"} (${data.coveredCustomersCount})") }
-                            )
-                        }
-                        item {
-                            FilterChip(
-                                selected = showUncovered,
-                                onClick = { showUncovered = !showUncovered },
-                                label = { Text("${if (isEn) "Uncovered" else "Luar Radius"} (${data.uncoveredCustomersCount})") }
-                            )
-                        }
-                        if (data.odpsCount > 0) {
-                            item {
-                                FilterChip(
-                                    selected = showOdps,
-                                    onClick = { showOdps = !showOdps },
-                                    label = { Text("ODP (${data.odpsCount})") }
-                                )
-                            }
-                        }
-                        if (data.assetsCount > 0) {
-                            item {
-                                FilterChip(
-                                    selected = showAssets,
-                                    onClick = { showAssets = !showAssets },
-                                    label = { Text("${if (isEn) "Assets" else "Aset"} (${data.assetsCount})") }
-                                )
-                            }
                         }
                     }
 
@@ -292,9 +311,9 @@ fun NetworkMapScreen(
                         ) {
                             Text(
                                 text = if (isEn) {
-                                    "No router or customer coordinates have been set on the server yet."
+                                    "No router, customer, or asset coordinates have been set on the server yet."
                                 } else {
-                                    "Belum ada titik koordinat router atau pelanggan yang diisi di server."
+                                    "Belum ada titik koordinat router, pelanggan, atau aset yang diisi di server."
                                 },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -386,6 +405,9 @@ private fun buildNetworkCoverageLeafletHtml(points: List<MapPointItem>, isEn: Bo
     val txtUncovered = if (isEn) "Outside all router coverage" else "Di luar jangkauan radius router"
     val txtNearest = if (isEn) "Nearest router" else "Router terdekat"
     val txtUsersInRadius = if (isEn) "Customers in radius" else "Pelanggan dalam radius"
+    val legCovered = if (isEn) "Active (In Radius)" else "Aktif (Tercover)"
+    val legOut = if (isEn) "Active (Out Area)" else "Aktif (Luar Radius)"
+    val legExp = if (isEn) "Expired / Off" else "Expired / Nonaktif"
 
     return """
         <!DOCTYPE html>
@@ -395,24 +417,40 @@ private fun buildNetworkCoverageLeafletHtml(points: List<MapPointItem>, isEn: Bo
             <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
             <style>
                 html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; background: #0f172a; font-family: sans-serif; }
+                .dark-tiles .leaflet-tile-pane { filter: invert(100%) hue-rotate(180deg) brightness(92%) contrast(90%); }
                 #status-box {
                     position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
                     color: #e2e8f0; background: rgba(15,23,42,0.92); padding: 14px 18px;
                     border-radius: 12px; font-size: 13px; text-align: center; z-index: 9999;
                 }
+                #legend-box {
+                    position: fixed; left: 10px; bottom: 18px; z-index: 900;
+                    background: rgba(15,23,42,0.88); color: #f8fafc; padding: 8px 10px;
+                    border-radius: 10px; font-size: 11px; line-height: 1.5;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.28);
+                }
+                .leg-row { display: flex; align-items: center; gap: 6px; }
+                .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; border: 1.2px solid #fff; }
                 .pin-wrap { background: transparent; border: none; }
-                .popup-card { min-width: 190px; font-size: 12.5px; line-height: 1.45; color: #0f172a; }
+                .popup-card { min-width: 195px; font-size: 12.5px; line-height: 1.45; color: #0f172a; }
                 .popup-title { font-weight: 700; font-size: 13.5px; margin-bottom: 3px; }
                 .badge { display: inline-block; padding: 2px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; margin-top: 5px; }
                 .badge-ok { background: #dcfce7; color: #166534; }
                 .badge-warn { background: #fef3c7; color: #92400e; }
+                .badge-err { background: #fee2e2; color: #991b1b; }
                 .badge-info { background: #e0f2fe; color: #075985; }
-                .dark-tiles .leaflet-tile-pane { filter: invert(100%) hue-rotate(180deg) brightness(92%) contrast(90%); }
             </style>
         </head>
         <body>
             <div id="status-box">$txtLoading</div>
             <div id="map"></div>
+            <div id="legend-box">
+                <div class="leg-row"><span class="dot" style="background:#0284C7"></span> Router Server</div>
+                <div class="leg-row"><span class="dot" style="background:#16A34A"></span> $legCovered</div>
+                <div class="leg-row"><span class="dot" style="background:#EA580C"></span> $legOut</div>
+                <div class="leg-row"><span class="dot" style="background:#DC2626"></span> $legExp</div>
+                <div class="leg-row"><span class="dot" style="background:#7C3AED"></span> ODP / Asset</div>
+            </div>
             <script>
                 var POINTS = $pointsJson;
                 var map = null;
@@ -442,23 +480,23 @@ private fun buildNetworkCoverageLeafletHtml(points: List<MapPointItem>, isEn: Bo
                 }
 
                 function setBaseLayer(style) {
-    if (!map || typeof L === 'undefined') return;
-    if (currentTile) map.removeLayer(currentTile);
-    var mapEl = document.getElementById('map');
-    if (mapEl) mapEl.classList.remove('dark-tiles');
+                    if (!map || typeof L === 'undefined') return;
+                    if (currentTile) map.removeLayer(currentTile);
+                    var mapEl = document.getElementById('map');
+                    if (mapEl) mapEl.classList.remove('dark-tiles');
 
-    var url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-    var opts = { maxZoom: 19, attribution: '© OpenStreetMap' };
+                    var url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+                    var opts = { maxZoom: 19, attribution: '© OpenStreetMap' };
 
-    if (style === 'dark') {
-        url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-        if (mapEl) mapEl.classList.add('dark-tiles');
-    } else if (style === 'satellite') {
-        url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-        opts = { maxZoom: 19, attribution: '© Esri World Imagery' };
-    }
-    currentTile = L.tileLayer(url, opts).addTo(map);
-}
+                    if (style === 'dark') {
+                        url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+                        if (mapEl) mapEl.classList.add('dark-tiles');
+                    } else if (style === 'satellite') {
+                        url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+                        opts = { maxZoom: 19, attribution: '© Esri World Imagery' };
+                    }
+                    currentTile = L.tileLayer(url, opts).addTo(map);
+                }
 
                 window.applyMapState = function(showR, showCov, showUncov, showO, showA, style) {
                     stateCache = { r: !!showR, cov: !!showCov, uncov: !!showUncov, o: !!showO, a: !!showA, style: style || 'standard' };
@@ -524,9 +562,11 @@ private fun buildNetworkCoverageLeafletHtml(points: List<MapPointItem>, isEn: Bo
                         allBounds.extend(ll);
 
                         if (p.category === 'router') {
+                            var rOnline = String(p.status || 'Online').toLowerCase() !== 'offline';
+                            var rColor = rOnline ? '#0284C7' : '#64748B';
                             if (p.radiusMeters && p.radiusMeters > 0) {
                                 var c = L.circle(ll, {
-                                    color: '#0284C7',
+                                    color: rColor,
                                     weight: 2,
                                     dashArray: '6, 5',
                                     fillColor: '#0EA5E9',
@@ -538,15 +578,15 @@ private fun buildNetworkCoverageLeafletHtml(points: List<MapPointItem>, isEn: Bo
                             var rHtml = '<div class="popup-card">' +
                                 '<div class="popup-title">📡 ' + esc(p.title) + '</div>' +
                                 '<div>' + esc(p.subtitle) + '</div>' +
-                                '<div class="badge badge-info">$txtUsersInRadius: ' + (p.coveredCount || 0) + '</div>' +
+                                '<div class="badge ' + (rOnline ? 'badge-info' : 'badge-err') + '">' + esc(p.status || 'Online') + ' • $txtUsersInRadius: ' + (p.coveredCount || 0) + '</div>' +
                                 '</div>';
-                            L.marker(ll, { icon: makePinIcon('#0284C7', 'R', 34), zIndexOffset: 500 })
+                            L.marker(ll, { icon: makePinIcon(rColor, 'R', 34), zIndexOffset: 500 })
                                 .bindPopup(rHtml)
                                 .addTo(layers.router);
                         } else if (p.category === 'customer_on' || p.category === 'customer_off') {
                             var isOn = (p.category === 'customer_on');
                             var isCov = !!p.isCovered;
-                            var pinColor = !isOn ? '#DC2626' : (isCov ? '#0D9488' : '#D97706');
+                            var pinColor = !isOn ? '#DC2626' : (isCov ? '#16A34A' : '#EA580C');
                             var covBadge = isCov
                                 ? '<div class="badge badge-ok">✓ $txtCovered: ' + esc(p.coveredBy) + '</div>'
                                 : '<div class="badge badge-warn">⚠ $txtUncovered' +
@@ -580,11 +620,24 @@ private fun buildNetworkCoverageLeafletHtml(points: List<MapPointItem>, isEn: Bo
                                 .bindPopup(oHtml)
                                 .addTo(layers.odp);
                         } else {
+                            // Asset: warna pin sesuai status & kondisi fisik
+                            var stLow = String(p.status || 'Active').toLowerCase();
+                            var condLow = String(p.condition || 'Good').toLowerCase();
+                            var aColor = '#10B981';
+                            var aBadgeCls = 'badge-ok';
+                            if (stLow.indexOf('inactive') >= 0 || stLow.indexOf('disposed') >= 0 || condLow === 'poor' || condLow === 'broken') {
+                                aColor = '#EF4444';
+                                aBadgeCls = 'badge-err';
+                            } else if (stLow.indexOf('maint') >= 0 || condLow === 'fair') {
+                                aColor = '#F59E0B';
+                                aBadgeCls = 'badge-warn';
+                            }
                             var aHtml = '<div class="popup-card">' +
                                 '<div class="popup-title">' + esc(p.title) + '</div>' +
                                 '<div>' + esc(p.subtitle) + '</div>' +
+                                '<div class="badge ' + aBadgeCls + '">' + esc(p.status || 'Active') + ' • ' + esc(p.condition || 'Good') + '</div>' +
                                 '</div>';
-                            L.marker(ll, { icon: makePinIcon('#CA8A04', 'A', 26) })
+                            L.marker(ll, { icon: makePinIcon(aColor, 'A', 28) })
                                 .bindPopup(aHtml)
                                 .addTo(layers.asset);
                         }
@@ -592,7 +645,6 @@ private fun buildNetworkCoverageLeafletHtml(points: List<MapPointItem>, isEn: Bo
 
                     window.applyMapState(stateCache.r, stateCache.cov, stateCache.uncov, stateCache.o, stateCache.a, stateCache.style);
 
-                    // Penting: invalidateSize dulu baru fitBounds agar peta langsung Auto Zoom-In ke titik pin
                     setTimeout(function() {
                         map.invalidateSize();
                         if (POINTS.length === 1 && POINTS[0].category === 'router') {
