@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Assessment
+import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.ConfirmationNumber
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Group
@@ -359,7 +360,8 @@ fun iconForDestination(destination: AdminDestination): ImageVector = when (desti
     AdminDestination.GENIEACS -> Icons.Outlined.SettingsInputAntenna
     AdminDestination.REPORTS -> Icons.Outlined.Assessment
     AdminDestination.PAYMENT_GATEWAY -> Icons.Outlined.Payments
-    AdminDestination.COUPONS_ASSETS -> Icons.Outlined.LocalOffer
+    AdminDestination.COUPONS -> Icons.Outlined.LocalOffer
+    AdminDestination.ASSETS -> Icons.Outlined.Category
     AdminDestination.MAP -> Icons.Outlined.Map
     AdminDestination.MESSAGES -> Icons.AutoMirrored.Outlined.Send
     AdminDestination.SETTINGS -> Icons.Outlined.Settings
