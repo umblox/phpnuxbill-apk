@@ -44,6 +44,7 @@ import com.phpnuxbill.mobile.feature.customers.ui.CustomerScreen
 import com.phpnuxbill.mobile.feature.customers.ui.CustomerViewModel
 import com.phpnuxbill.mobile.feature.dashboard.model.AdminDestination
 import com.phpnuxbill.mobile.feature.dashboard.model.AdminServerFlags
+import com.phpnuxbill.mobile.feature.dashboard.ui.AdminAccountScreen
 import com.phpnuxbill.mobile.feature.dashboard.ui.AdminDashboardScreen
 import com.phpnuxbill.mobile.feature.dashboard.ui.AdminDrawerSheetContent
 import com.phpnuxbill.mobile.feature.dashboard.ui.DashboardViewModel
@@ -62,6 +63,9 @@ import com.phpnuxbill.mobile.feature.plans.ui.PlanBandwidthViewModel
 import com.phpnuxbill.mobile.feature.plans.ui.PlansScreen
 import com.phpnuxbill.mobile.feature.portal.ui.CustomerPortalScreen
 import com.phpnuxbill.mobile.feature.portal.ui.CustomerPortalViewModel
+import com.phpnuxbill.mobile.feature.services.model.PrepaidServiceItem
+import com.phpnuxbill.mobile.feature.services.model.ServiceVoucherLabels
+import com.phpnuxbill.mobile.feature.services.ui.ActiveCustomerDetailScreen
 import com.phpnuxbill.mobile.feature.services.ui.ServiceVoucherViewModel
 import com.phpnuxbill.mobile.feature.services.ui.ServicesScreen
 import com.phpnuxbill.mobile.feature.services.ui.VouchersScreen
@@ -132,6 +136,8 @@ private fun AuthenticatedAdminShell(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var currentDestination by remember { mutableStateOf(AdminDestination.DASHBOARD) }
+    var showAccountScreen by remember { mutableStateOf(false) }
+    var showMikrotikOnlineDetail by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
     var lastBackPressedAt by remember { mutableLongStateOf(0L) }
 
@@ -140,7 +146,18 @@ private fun AuthenticatedAdminShell(
         key = "dash_$sessionKey",
         factory = DashboardViewModel.Factory(container.dashboardRepository, container.sessionStorage)
     )
+    val serviceVm: ServiceVoucherViewModel = viewModel(
+        key = "srv_$sessionKey",
+        factory = ServiceVoucherViewModel.Factory(
+            container.serviceVoucherRepository,
+            container.sessionStorage,
+            container.bluetoothPrinterHelper
+        )
+    )
+
     val dashUiState by dashboardVm.uiState.collectAsStateWithLifecycle()
+    val isChangingPassword by dashboardVm.isChangingPassword.collectAsStateWithLifecycle()
+    val accountMessage by dashboardVm.accountMessage.collectAsStateWithLifecycle()
     val dashData = (dashUiState as? UiState.Success)?.data
     val featureFlags = dashData?.featureFlags ?: AdminServerFlags()
     val adminPhotoUrl = dashData?.adminProfile?.photoUrl.orEmpty()
@@ -148,10 +165,95 @@ private fun AuthenticatedAdminShell(
         AdminLevel.fromUserType(dashData?.adminProfile?.userType ?: session.userType)
     }
 
-    // Penjagaan rute otomatis sesuai level admin & pengaturan fitur server
     LaunchedEffect(effectiveLevel, featureFlags, currentDestination) {
         if (!AdminRolePolicy.isDestinationAllowed(currentDestination, effectiveLevel, featureFlags)) {
             currentDestination = AdminDestination.DASHBOARD
+        }
+    }
+
+    // Layar penuh Akun Saya Admin (dipicu dari avatar kanan atas / kartu profil Sidebar)
+    if (showAccountScreen) {
+        AdminAccountScreen(
+            session = session,
+            adminPhotoUrl = adminPhotoUrl,
+            isChangingPassword = isChangingPassword,
+            bannerMessage = accountMessage,
+            onClearBanner = dashboardVm::clearAccountMessage,
+            onChangePassword = dashboardVm::changeAdminPassword,
+            onLanguageSelected = onLanguageSelected,
+            onThemeSelected = dashboardVm::setAppThemeMode,
+            onLogout = {
+                showAccountScreen = false
+                onLogout()
+            },
+            onBack = { showAccountScreen = false }
+        )
+        return
+    }
+
+    // Overlay Layar Penuh Detail & Live Speed untuk User Online yang diklik dari Tab User Online MikroTik
+    if (showMikrotikOnlineDetail) {
+        val selectedItem by serviceVm.selectedActiveService.collectAsStateWithLifecycle()
+        val detailState by serviceVm.activeDetailState.collectAsStateWithLifecycle()
+        val speedHistory by serviceVm.speedHistory.collectAsStateWithLifecycle()
+        val isLivePolling by serviceVm.isLivePollingEnabled.collectAsStateWithLifecycle()
+        val isActionRunning by serviceVm.isDetailActionRunning.collectAsStateWithLifecycle()
+        val editForm by serviceVm.editPrepaidForm.collectAsStateWithLifecycle()
+        val metadata by serviceVm.metadata.collectAsStateWithLifecycle()
+        val serviceLabels = remember(strings) { ServiceVoucherLabels(strings) }
+
+        if (selectedItem != null) {
+            ActiveCustomerDetailScreen(
+                selectedItem = selectedItem!!,
+                detailState = detailState,
+                speedHistory = speedHistory,
+                isLivePollingEnabled = isLivePolling,
+                isActionRunning = isActionRunning,
+                editForm = editForm,
+                metadata = metadata,
+                adminLevel = effectiveLevel,
+                currencyCode = session.currencyCode,
+                labels = serviceLabels,
+                onToggleLivePolling = serviceVm::toggleLivePolling,
+                onPollLive = { silent -> serviceVm.pollActiveCustomerLiveDetail(silent = silent) },
+                onRecharge = { cid, pid ->
+                    showMikrotikOnlineDetail = false
+                    currentDestination = AdminDestination.SERVICES
+                    serviceVm.openRechargeForm(cid, pid)
+                },
+                onDeposit = { cid ->
+                    showMikrotikOnlineDetail = false
+                    currentDestination = AdminDestination.SERVICES
+                    serviceVm.openDepositForm(cid)
+                },
+                onExtend = { rid, days -> serviceVm.extendService(rid, days) },
+                onSyncRouter = serviceVm::syncSelectedCustomerToRouter,
+                onKickSession = serviceVm::kickSelectedActiveUser,
+                onOpenEditPrepaid = serviceVm::openEditPrepaidForm,
+                onUpdateEditPrepaid = serviceVm::updateEditPrepaidForm,
+                onSubmitEditPrepaid = serviceVm::submitEditPrepaidForm,
+                onCloseEditPrepaid = serviceVm::closeEditPrepaidForm,
+                onViewReceipt = {
+                    showMikrotikOnlineDetail = false
+                    currentDestination = AdminDestination.SERVICES
+                    serviceVm.openReceiptForService(
+                        item = selectedItem!!,
+                        companyName = session.effectiveCompanyName,
+                        currencyCode = session.currencyCode
+                    )
+                },
+                onDeleteService = { rid ->
+                    serviceVm.deleteService(rid, closeDetailOnDone = true)
+                    showMikrotikOnlineDetail = false
+                },
+                onBack = {
+                    serviceVm.closeActiveCustomerDetail()
+                    showMikrotikOnlineDetail = false
+                }
+            )
+            return
+        } else {
+            showMikrotikOnlineDetail = false
         }
     }
 
@@ -207,6 +309,10 @@ private fun AuthenticatedAdminShell(
     val openDrawerFn: () -> Unit = { scope.launch { drawerState.open() } }
     val navigateSafe: (AdminDestination) -> Unit = { target ->
         if (AdminRolePolicy.isDestinationAllowed(target, effectiveLevel, featureFlags)) {
+            showAccountScreen = false
+            showMikrotikOnlineDetail = false
+            serviceVm.closeServiceMode()
+            serviceVm.closeActiveCustomerDetail()
             currentDestination = target
         }
     }
@@ -223,10 +329,12 @@ private fun AuthenticatedAdminShell(
                     navigateSafe(dest)
                     scope.launch { drawerState.close() }
                 },
-                onLanguageSelected = onLanguageSelected,
-                onThemeSelected = { mode ->
-                    scope.launch { container.sessionStorage.setThemeMode(mode) }
+                onOpenAccount = {
+                    scope.launch { drawerState.close() }
+                    showAccountScreen = true
                 },
+                onLanguageSelected = onLanguageSelected,
+                onThemeSelected = dashboardVm::setAppThemeMode,
                 onLogoutClick = {
                     scope.launch { drawerState.close() }
                     showLogoutDialog = true
@@ -241,6 +349,7 @@ private fun AuthenticatedAdminShell(
                     session = session,
                     onOpenDrawer = openDrawerFn,
                     onNavigate = navigateSafe,
+                    onOpenAccount = { showAccountScreen = true },
                     onSwitchServerClick = { showLogoutDialog = true },
                     onLogoutClick = { showLogoutDialog = true }
                 )
@@ -253,26 +362,10 @@ private fun AuthenticatedAdminShell(
                 CustomerScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
             }
             AdminDestination.SERVICES -> {
-                val vm: ServiceVoucherViewModel = viewModel(
-                    key = "srv_$sessionKey",
-                    factory = ServiceVoucherViewModel.Factory(
-                        container.serviceVoucherRepository,
-                        container.sessionStorage,
-                        container.bluetoothPrinterHelper
-                    )
-                )
-                ServicesScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
+                ServicesScreen(viewModel = serviceVm, session = session, onOpenDrawer = openDrawerFn)
             }
             AdminDestination.VOUCHERS -> {
-                val vm: ServiceVoucherViewModel = viewModel(
-                    key = "srv_$sessionKey",
-                    factory = ServiceVoucherViewModel.Factory(
-                        container.serviceVoucherRepository,
-                        container.sessionStorage,
-                        container.bluetoothPrinterHelper
-                    )
-                )
-                VouchersScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
+                VouchersScreen(viewModel = serviceVm, session = session, onOpenDrawer = openDrawerFn)
             }
             AdminDestination.PLANS -> {
                 val vm: PlanBandwidthViewModel = viewModel(
@@ -293,7 +386,34 @@ private fun AuthenticatedAdminShell(
                     key = "net_$sessionKey",
                     factory = NetworkGenieAcsViewModel.Factory(container.networkGenieAcsRepository, container.sessionStorage)
                 )
-                MikrotikMonitorScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
+                MikrotikMonitorScreen(
+                    viewModel = vm,
+                    session = session,
+                    onOpenDrawer = openDrawerFn,
+                    onOpenOnlineUserDetail = { onlineUser ->
+                        val synthetic = PrepaidServiceItem(
+                            id = 0,
+                            customerId = 0,
+                            username = onlineUser.username,
+                            fullname = onlineUser.username,
+                            phonenumber = "",
+                            planId = 0,
+                            namebp = "-",
+                            rechargedOn = "",
+                            rechargedTime = "",
+                            expiration = "-",
+                            time = "",
+                            status = "on",
+                            method = "-",
+                            routers = onlineUser.router.ifBlank { onlineUser.server },
+                            type = onlineUser.service,
+                            price = 0.0,
+                            invoice = ""
+                        )
+                        serviceVm.openActiveCustomerDetail(synthetic)
+                        showMikrotikOnlineDetail = true
+                    }
+                )
             }
             AdminDestination.GENIEACS -> {
                 val vm: NetworkGenieAcsViewModel = viewModel(
