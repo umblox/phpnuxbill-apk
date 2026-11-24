@@ -1,5 +1,6 @@
 package com.phpnuxbill.mobile.feature.operations.data
 
+import com.google.gson.JsonObject
 import com.phpnuxbill.mobile.core.model.ApiResult
 import com.phpnuxbill.mobile.core.network.NetworkGateway
 import com.phpnuxbill.mobile.core.network.asArrOrNull
