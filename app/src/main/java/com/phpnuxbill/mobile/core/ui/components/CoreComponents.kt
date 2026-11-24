@@ -1,5 +1,6 @@
 package com.phpnuxbill.mobile.core.ui.components
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -63,12 +64,6 @@ import com.phpnuxbill.mobile.core.ui.theme.StatusWarningBgLight
 import com.phpnuxbill.mobile.core.ui.theme.StatusWarningFgLight
 import java.io.File
 
-/**
- * Logo Identitas Dinamis:
- * Prioritas 1: Logo lokal yang dipilih admin dari galeri HP
- * Prioritas 2: Logo server PHPNuxBill (system/uploads/logo.png)
- * Prioritas 3: Default R.drawable.logo (512x512)
- */
 @Composable
 fun BrandLogo(
     customLocalLogoPath: String,
@@ -118,9 +113,6 @@ fun BrandLogo(
     }
 }
 
-/**
- * Toggle Bahasa Instan (ID | EN)
- */
 @Composable
 fun LanguageToggleChip(
     currentLanguageCode: String,
@@ -171,7 +163,7 @@ fun LanguageToggleChip(
 }
 
 /**
- * Scaffold Standar Layar Penuh dengan proteksi WindowInsets (Target SDK 35 Edge-to-Edge)
+ * Scaffold Standar Layar Penuh + proteksi WindowInsets (Edge-to-Edge) + Global BackHandler.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -185,6 +177,11 @@ fun AppScreenScaffold(
     content: @Composable (PaddingValues) -> Unit
 ) {
     val strings = LocalAppStrings.current
+
+    if (onBack != null) {
+        BackHandler(enabled = true) { onBack() }
+    }
+
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
