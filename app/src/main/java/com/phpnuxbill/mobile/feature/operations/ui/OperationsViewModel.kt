@@ -371,15 +371,19 @@ fun ensureWebSettingsLoaded() {
             AssetFormState(
                 isOpen = true,
                 id = item.id,
+                assetTag = item.assetTag,
                 name = item.name,
-                category = item.category,
+                category = item.category.ifBlank { "Network Equipment" },
                 brand = item.brand,
+                modelName = item.modelName,
                 serialNumber = item.serialNumber,
                 cost = item.cost.toLong().toString(),
+                purchaseDate = item.purchaseDate,
+                warrantyExpiry = item.warrantyExpiry,
                 location = item.location,
                 coordinates = item.coordinates,
-                conditionStatus = item.conditionStatus,
-                purchaseDate = item.purchaseDate,
+                status = item.status.ifBlank { "Active" },
+                conditionStatus = item.conditionStatus.ifBlank { "Good" },
                 notes = item.notes
             )
         }
