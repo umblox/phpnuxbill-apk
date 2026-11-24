@@ -98,13 +98,15 @@ import com.phpnuxbill.mobile.feature.customers.model.CustomerFormState
 import com.phpnuxbill.mobile.feature.customers.model.CustomerItem
 import com.phpnuxbill.mobile.feature.customers.model.CustomerLabels
 import com.phpnuxbill.mobile.feature.dashboard.ui.formatMoney
+import com.phpnuxbill.mobile.feature.services.model.InvoiceReceiptData
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CustomerScreen(
     viewModel: CustomerViewModel,
     session: SessionState,
-    onOpenDrawer: () -> Unit
+    onOpenDrawer: () -> Unit,
+    onReceiptCreated: (InvoiceReceiptData) -> Unit = {}
 ) {
     val listState by viewModel.listState.collectAsStateWithLifecycle()
     val totalCount by viewModel.totalCount.collectAsStateWithLifecycle()
@@ -115,6 +117,13 @@ fun CustomerScreen(
     val metadata by viewModel.metadata.collectAsStateWithLifecycle()
     val formState by viewModel.formState.collectAsStateWithLifecycle()
     val showMapPicker by viewModel.showMapPicker.collectAsStateWithLifecycle()
+    val createdReceipt by viewModel.createdReceipt.collectAsStateWithLifecycle()
+
+    LaunchedEffect(createdReceipt) {
+        val receipt = createdReceipt ?: return@LaunchedEffect
+        onReceiptCreated(receipt)
+        viewModel.clearCreatedReceipt()
+    }
 
     val strings = LocalAppStrings.current
     val labels = remember(strings) { CustomerLabels(strings) }
@@ -544,14 +553,34 @@ private fun CustomerFullScreenForm(
     onClose: () -> Unit
 ) {
     val strings = LocalAppStrings.current
+    val isEn = strings.langCode == "en"
     var planDropdownExpanded by remember { mutableStateOf(false) }
     var usingDropdownExpanded by remember { mutableStateOf(false) }
 
-    val selectedPlanObj = metadata.plans.find { it.id == form.selectedPlanId }
+    // Saring paket otomatis sesuai tipe layanan (Hotspot / PPPoE) seperti plugin quickadd.php
+    val filteredPlans = remember(metadata.plans, form.serviceType) {
+        if (form.serviceType.equals("Others", ignoreCase = true)) {
+            metadata.plans
+        } else {
+            metadata.plans.filter { it.type.equals(form.serviceType, ignoreCase = true) }
+        }
+    }
+    val selectedPlanObj = filteredPlans.find { it.id == form.selectedPlanId }
+        ?: metadata.plans.find { it.id == form.selectedPlanId }
+    val isZeroMethod = form.selectedUsing.equals("Recharge Zero", ignoreCase = true)
+
+    val isFormValid = if (form.isEdit) {
+        form.username.trim().length >= 3 && form.fullname.trim().length >= 2
+    } else {
+        form.username.trim().length >= 3 &&
+            form.fullname.trim().length >= 2 &&
+            form.password.length in 3..35 &&
+            form.selectedPlanId > 0
+    }
 
     AppScreenScaffold(
-        title = if (form.isEdit) strings.editCustomer else strings.addCustomer,
-        subtitle = if (form.isEdit) "@${form.username}" else null,
+        title = if (form.isEdit) strings.editCustomer else (if (isEn) "Quick Add Customer" else "Tambah Pelanggan Cepat"),
+        subtitle = if (form.isEdit) "@${form.username}" else "${form.serviceType} • ${selectedPlanObj?.namePlan ?: strings.selectPlan}",
         onBack = onClose,
         bottomBar = {
             Surface(
@@ -575,8 +604,8 @@ private fun CustomerFullScreenForm(
                     }
                     Button(
                         onClick = onSubmit,
-                        enabled = !form.isSaving && form.username.isNotBlank() && form.fullname.isNotBlank(),
-                        modifier = Modifier.weight(1.5f),
+                        enabled = !form.isSaving && isFormValid,
+                        modifier = Modifier.weight(1.6f),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         if (form.isSaving) {
@@ -587,7 +616,11 @@ private fun CustomerFullScreenForm(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                         }
-                        Text(strings.save)
+                        Text(
+                            text = if (form.isEdit) strings.save
+                            else (if (isEn) "Register & Activate" else "Daftar & Aktifkan"),
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
@@ -616,7 +649,10 @@ private fun CustomerFullScreenForm(
                 }
             }
 
-            FormSectionCard(title = labels.accountInfoSection) {
+            // Bagian 1 (Quick Add): Pilih Layanan & Paket Aktivasi Langsung
+            FormSectionCard(
+                title = if (form.isEdit) labels.optionalPlanSection else labels.initialPlanSection
+            ) {
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                     val types = listOf("Hotspot", "PPPoE", "Others")
                     types.forEachIndexed { index, t ->
@@ -631,21 +667,138 @@ private fun CustomerFullScreenForm(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
+                ExposedDropdownMenuBox(
+                    expanded = planDropdownExpanded,
+                    onExpandedChange = { planDropdownExpanded = !planDropdownExpanded }
+                ) {
+                    OutlinedTextField(
+                        value = selectedPlanObj?.let {
+                            val displayPrice = if (isZeroMethod) 0.0 else it.price
+                            "${it.namePlan} (${formatMoney(currencyCode, displayPrice)})"
+                        } ?: strings.selectPlan,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = {
+                            Text(
+                                if (form.isEdit) strings.selectPlan
+                                else "${strings.selectPlan} (${form.serviceType}) *"
+                            )
+                        },
+                        trailingIcon = {
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = planDropdownExpanded)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    ExposedDropdownMenu(
+                        expanded = planDropdownExpanded,
+                        onDismissRequest = { planDropdownExpanded = false }
+                    ) {
+                        if (form.isEdit) {
+                            DropdownMenuItem(
+                                text = { Text("-") },
+                                onClick = {
+                                    onUpdateForm { it.copy(selectedPlanId = 0) }
+                                    planDropdownExpanded = false
+                                }
+                            )
+                        }
+                        if (filteredPlans.isEmpty()) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (isEn) "No active ${form.serviceType} plans"
+                                        else "Belum ada paket ${form.serviceType} aktif"
+                                    )
+                                },
+                                onClick = { planDropdownExpanded = false }
+                            )
+                        } else {
+                            filteredPlans.forEach { p ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text("${p.namePlan} • ${p.validityLabel} (${formatMoney(currencyCode, p.price)})")
+                                    },
+                                    onClick = {
+                                        onUpdateForm { it.copy(selectedPlanId = p.id) }
+                                        planDropdownExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (form.selectedPlanId > 0) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    ExposedDropdownMenuBox(
+                        expanded = usingDropdownExpanded,
+                        onExpandedChange = { usingDropdownExpanded = !usingDropdownExpanded }
+                    ) {
+                        OutlinedTextField(
+                            value = form.selectedUsing,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text(strings.paymentMethod) },
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = usingDropdownExpanded)
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        ExposedDropdownMenu(
+                            expanded = usingDropdownExpanded,
+                            onDismissRequest = { usingDropdownExpanded = false }
+                        ) {
+                            metadata.paymentUsings.forEach { method ->
+                                DropdownMenuItem(
+                                    text = { Text(method) },
+                                    onClick = {
+                                        onUpdateForm { it.copy(selectedUsing = method) }
+                                        usingDropdownExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    if (isZeroMethod) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        StatusBadge(
+                            text = if (isEn) "Zero Cost Activation (Rp 0)" else "Aktivasi Gratis / Zero (Rp 0)",
+                            tone = BadgeTone.WARNING
+                        )
+                    }
+                }
+            }
+
+            // Bagian 2: Informasi Akun Pelanggan
+            FormSectionCard(title = labels.accountInfoSection) {
                 OutlinedTextField(
                     value = form.username,
                     onValueChange = { v -> onUpdateForm { it.copy(username = v) } },
-                    label = { Text(strings.usernameLabel) },
+                    label = { Text("${strings.usernameLabel} *") },
+                    isError = form.username.isNotEmpty() && form.username.trim().length < 3,
+                    supportingText = {
+                        if (form.username.isNotEmpty() && form.username.trim().length < 3) {
+                            Text(if (isEn) "Minimum 3 characters" else "Minimal 3 karakter")
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp)
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 OutlinedTextField(
                     value = form.fullname,
                     onValueChange = { v -> onUpdateForm { it.copy(fullname = v) } },
-                    label = { Text(strings.fullName) },
+                    label = { Text("${strings.fullName} *") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp)
@@ -655,11 +808,12 @@ private fun CustomerFullScreenForm(
 
                 OutlinedTextField(
                     value = form.password,
-                    onValueChange = { v -> onUpdateForm { it.copy(password = v) } },
-                    label = { Text(strings.passwordLabel) },
+                    onValueChange = { if (it.length <= 35) onUpdateForm { f -> f.copy(password = it) } },
+                    label = { Text(if (form.isEdit) strings.passwordLabel else "${strings.passwordLabel} (3–35) *") },
                     placeholder = if (form.isEdit) {
                         { Text(labels.passwordEditHint) }
                     } else null,
+                    isError = !form.isEdit && form.password.isNotEmpty() && form.password.length < 3,
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp)
@@ -684,12 +838,16 @@ private fun CustomerFullScreenForm(
                 }
             }
 
+            // Bagian 3: Kredensial PPPoE (Jika PPPoE atau diisi opsional)
             if (form.serviceType.equals("PPPoE", ignoreCase = true) || form.pppoeUsername.isNotBlank()) {
                 FormSectionCard(title = labels.pppoeSection) {
                     OutlinedTextField(
                         value = form.pppoeUsername,
                         onValueChange = { v -> onUpdateForm { it.copy(pppoeUsername = v) } },
                         label = { Text(labels.pppoeUserLabel) },
+                        placeholder = {
+                            Text(if (isEn) "Leave empty to use Username" else "Kosongkan untuk samakan dgn Username")
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp)
@@ -699,6 +857,9 @@ private fun CustomerFullScreenForm(
                         value = form.pppoePassword,
                         onValueChange = { v -> onUpdateForm { it.copy(pppoePassword = v) } },
                         label = { Text(labels.pppoePassLabel) },
+                        placeholder = {
+                            Text(if (isEn) "Leave empty to use Password" else "Kosongkan untuk samakan dgn Password")
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp)
@@ -715,6 +876,7 @@ private fun CustomerFullScreenForm(
                 }
             }
 
+            // Bagian 4: Kontak & Lokasi Pemasangan + Coordinate Picker
             FormSectionCard(title = labels.contactLocationSection) {
                 OutlinedTextField(
                     value = form.phonenumber,
@@ -786,92 +948,7 @@ private fun CustomerFullScreenForm(
                 )
             }
 
-            FormSectionCard(
-                title = if (form.isEdit) labels.optionalPlanSection else labels.initialPlanSection
-            ) {
-                ExposedDropdownMenuBox(
-                    expanded = planDropdownExpanded,
-                    onExpandedChange = { planDropdownExpanded = !planDropdownExpanded }
-                ) {
-                    OutlinedTextField(
-                        value = selectedPlanObj?.let {
-                            "${it.namePlan} (${formatMoney(currencyCode, it.price)})"
-                        } ?: strings.selectPlan,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text(strings.selectPlan) },
-                        trailingIcon = {
-                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = planDropdownExpanded)
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .menuAnchor(MenuAnchorType.PrimaryNotEditable),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    ExposedDropdownMenu(
-                        expanded = planDropdownExpanded,
-                        onDismissRequest = { planDropdownExpanded = false }
-                    ) {
-                        if (form.isEdit) {
-                            DropdownMenuItem(
-                                text = { Text("-") },
-                                onClick = {
-                                    onUpdateForm { it.copy(selectedPlanId = 0) }
-                                    planDropdownExpanded = false
-                                }
-                            )
-                        }
-                        metadata.plans.forEach { p ->
-                            DropdownMenuItem(
-                                text = {
-                                    Text("${p.namePlan} • ${p.type} (${formatMoney(currencyCode, p.price)})")
-                                },
-                                onClick = {
-                                    onUpdateForm { it.copy(selectedPlanId = p.id) }
-                                    planDropdownExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                if (form.selectedPlanId > 0) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    ExposedDropdownMenuBox(
-                        expanded = usingDropdownExpanded,
-                        onExpandedChange = { usingDropdownExpanded = !usingDropdownExpanded }
-                    ) {
-                        OutlinedTextField(
-                            value = form.selectedUsing,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text(strings.paymentMethod) },
-                            trailingIcon = {
-                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = usingDropdownExpanded)
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .menuAnchor(MenuAnchorType.PrimaryNotEditable),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        ExposedDropdownMenu(
-                            expanded = usingDropdownExpanded,
-                            onDismissRequest = { usingDropdownExpanded = false }
-                        ) {
-                            metadata.paymentUsings.forEach { method ->
-                                DropdownMenuItem(
-                                    text = { Text(method) },
-                                    onClick = {
-                                        onUpdateForm { it.copy(selectedUsing = method) }
-                                        usingDropdownExpanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
+            // Bagian 5: Welcome Message (Saat Registrasi Baru)
             if (!form.isEdit) {
                 FormSectionCard(title = labels.welcomeSection) {
                     Row(
@@ -913,6 +990,7 @@ private fun CustomerFullScreenForm(
                 }
             }
 
+            // Bagian 6: Custom Fields (tbl_customers_fields)
             FormSectionCard(title = labels.customFieldsSection) {
                 form.customFields.forEachIndexed { idx, cf ->
                     Row(
