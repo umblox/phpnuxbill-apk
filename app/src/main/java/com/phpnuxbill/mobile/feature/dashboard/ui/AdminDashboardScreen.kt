@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -450,7 +451,9 @@ private fun AdminKpiGrid(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Max),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             KpiStatTile(
@@ -462,32 +465,40 @@ private fun AdminKpiGrid(
                 onClick = if (AdminRolePolicy.canAccessActiveCustomers(level)) {
                     { onNavigate(AdminDestination.SERVICES) }
                 } else null,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
             )
             KpiStatTile(
                 icon = Icons.Outlined.Group,
                 title = labels.totalCustomers,
                 value = "${data.cards.totalCustomers}",
-                subtitle = null,
+                subtitle = " ",
                 accent = BrandBlue600,
                 onClick = { onNavigate(AdminDestination.CUSTOMERS) },
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
             )
         }
 
         if (AdminRolePolicy.canViewGlobalFinance(level)) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Max),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 KpiStatTile(
                     icon = Icons.Outlined.AccountBalanceWallet,
                     title = labels.customerBalance,
                     value = formatMoney(data.currencyCode, data.cards.totalCustomerBalance),
-                    subtitle = null,
+                    subtitle = " ",
                     accent = Color(0xFF0369A1),
                     onClick = { onNavigate(AdminDestination.CUSTOMERS) },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
                 )
                 if (AdminRolePolicy.canAccessPaymentGatewayAudit(level)) {
                     KpiStatTile(
@@ -497,7 +508,9 @@ private fun AdminKpiGrid(
                         subtitle = "Payment Gateway",
                         accent = if (data.cards.unpaidBillsCount > 0) Color(0xFFD97706) else BrandTeal500,
                         onClick = { onNavigate(AdminDestination.PAYMENT_GATEWAY) },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
                     )
                 } else {
                     KpiStatTile(
@@ -507,7 +520,9 @@ private fun AdminKpiGrid(
                         subtitle = labels.incomeToday,
                         accent = BrandTeal500,
                         onClick = { onNavigate(AdminDestination.REPORTS) },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
                     )
                 }
             }
@@ -771,13 +786,16 @@ private fun AdminQuickActionsRow(
                     color = MaterialTheme.colorScheme.surface,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier
-                        .width(96.dp)
+                        .width(100.dp)
+                        .height(104.dp)
                         .clickable(onClick = act.onClick)
                 ) {
                     Column(
-                        modifier = Modifier.padding(vertical = 12.dp, horizontal = 8.dp),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 8.dp, vertical = 10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        verticalArrangement = Arrangement.Center
                     ) {
                         Box(
                             modifier = Modifier
@@ -793,11 +811,13 @@ private fun AdminQuickActionsRow(
                                 modifier = Modifier.size(20.dp)
                             )
                         }
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             text = act.label,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold,
                             textAlign = TextAlign.Center,
+                            minLines = 2,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
