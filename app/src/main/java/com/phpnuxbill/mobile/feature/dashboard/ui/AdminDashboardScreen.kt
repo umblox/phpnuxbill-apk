@@ -32,6 +32,7 @@ import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Payments
+import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Router
 import androidx.compose.material.icons.outlined.Schedule
@@ -99,6 +100,7 @@ fun AdminDashboardScreen(
     session: SessionState,
     onOpenDrawer: () -> Unit,
     onOpenAccount: () -> Unit = {},
+    onQuickAddCustomer: () -> Unit = {},
     onNavigate: (AdminDestination) -> Unit,
     onSwitchServerClick: () -> Unit = {},
     onLogoutClick: () -> Unit = {}
@@ -296,6 +298,7 @@ fun AdminDashboardScreen(
                                 flags = flags,
                                 labels = labels,
                                 isEn = isEn,
+                                onQuickAddCustomer = onQuickAddCustomer,
                                 onNavigate = onNavigate
                             )
                         }
@@ -668,29 +671,89 @@ private fun ServiceCountChip(
     }
 }
 
+private data class DashboardQuickAction(
+    val key: String,
+    val label: String,
+    val icon: ImageVector,
+    val onClick: () -> Unit
+)
+
 @Composable
 private fun AdminQuickActionsRow(
     level: AdminLevel,
     flags: com.phpnuxbill.mobile.feature.dashboard.model.AdminServerFlags,
     labels: AdminDashboardLabels,
     isEn: Boolean,
+    onQuickAddCustomer: () -> Unit,
     onNavigate: (AdminDestination) -> Unit
 ) {
     val actions = remember(level, flags, isEn) {
         buildList {
-            if (AdminRolePolicy.canAccessActiveCustomers(level)) {
-                add(Triple(AdminDestination.SERVICES, if (isEn) "Active\nCustomers" else "Pelanggan\nAktif", Icons.Outlined.WifiTethering))
+            if (AdminRolePolicy.canAddCustomer(level)) {
+                add(
+                    DashboardQuickAction(
+                        key = "quick_add_customer",
+                        label = if (isEn) "Add\nCustomer" else "Tambah\nPelanggan",
+                        icon = Icons.Outlined.PersonAdd,
+                        onClick = onQuickAddCustomer
+                    )
+                )
             }
-            add(Triple(AdminDestination.CUSTOMERS, if (isEn) "Customers" else "Pelanggan", Icons.Outlined.Group))
+            if (AdminRolePolicy.canAccessActiveCustomers(level)) {
+                add(
+                    DashboardQuickAction(
+                        key = AdminDestination.SERVICES.route,
+                        label = if (isEn) "Active\nCustomers" else "Pelanggan\nAktif",
+                        icon = Icons.Outlined.WifiTethering,
+                        onClick = { onNavigate(AdminDestination.SERVICES) }
+                    )
+                )
+            }
+            add(
+                DashboardQuickAction(
+                    key = AdminDestination.CUSTOMERS.route,
+                    label = if (isEn) "Customers" else "Pelanggan",
+                    icon = Icons.Outlined.Group,
+                    onClick = { onNavigate(AdminDestination.CUSTOMERS) }
+                )
+            )
             if (AdminRolePolicy.canAccessVouchers(level, flags)) {
-                add(Triple(AdminDestination.VOUCHERS, "Voucher", Icons.Outlined.ConfirmationNumber))
+                add(
+                    DashboardQuickAction(
+                        key = AdminDestination.VOUCHERS.route,
+                        label = "Voucher",
+                        icon = Icons.Outlined.ConfirmationNumber,
+                        onClick = { onNavigate(AdminDestination.VOUCHERS) }
+                    )
+                )
             }
             if (AdminRolePolicy.canManagePlansAndNetwork(level)) {
-                add(Triple(AdminDestination.MIKROTIK, "MikroTik", Icons.Outlined.Router))
-                add(Triple(AdminDestination.GENIEACS, "GenieACS", Icons.Outlined.SettingsInputAntenna))
+                add(
+                    DashboardQuickAction(
+                        key = AdminDestination.MIKROTIK.route,
+                        label = "MikroTik",
+                        icon = Icons.Outlined.Router,
+                        onClick = { onNavigate(AdminDestination.MIKROTIK) }
+                    )
+                )
+                add(
+                    DashboardQuickAction(
+                        key = AdminDestination.GENIEACS.route,
+                        label = "GenieACS",
+                        icon = Icons.Outlined.SettingsInputAntenna,
+                        onClick = { onNavigate(AdminDestination.GENIEACS) }
+                    )
+                )
             }
             if (AdminRolePolicy.canAccessReports(level)) {
-                add(Triple(AdminDestination.REPORTS, if (isEn) "Reports" else "Laporan", Icons.Outlined.Assessment))
+                add(
+                    DashboardQuickAction(
+                        key = AdminDestination.REPORTS.route,
+                        label = if (isEn) "Reports" else "Laporan",
+                        icon = Icons.Outlined.Assessment,
+                        onClick = { onNavigate(AdminDestination.REPORTS) }
+                    )
+                )
             }
         }
     }
@@ -702,14 +765,14 @@ private fun AdminQuickActionsRow(
             fontWeight = FontWeight.Bold
         )
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(actions, key = { it.first.route }) { (dest, label, icon) ->
+            items(actions, key = { it.key }) { act ->
                 Surface(
                     shape = RoundedCornerShape(16.dp),
                     color = MaterialTheme.colorScheme.surface,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier
                         .width(96.dp)
-                        .clickable { onNavigate(dest) }
+                        .clickable(onClick = act.onClick)
                 ) {
                     Column(
                         modifier = Modifier.padding(vertical = 12.dp, horizontal = 8.dp),
@@ -724,14 +787,14 @@ private fun AdminQuickActionsRow(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = icon,
+                                imageVector = act.icon,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
                         Text(
-                            text = label,
+                            text = act.label,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold,
                             textAlign = TextAlign.Center,
