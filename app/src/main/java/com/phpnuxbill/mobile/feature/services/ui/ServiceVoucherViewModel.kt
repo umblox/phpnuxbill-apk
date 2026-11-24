@@ -649,6 +649,10 @@ class ServiceVoucherViewModel(
         )
     }
 
+    fun showReceipt(receipt: InvoiceReceiptData) {
+        _activeReceipt.value = receipt
+    }
+    
     fun closeReceipt() {
         _activeReceipt.value = null
     }
