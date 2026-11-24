@@ -19,6 +19,11 @@ import com.phpnuxbill.mobile.feature.dashboard.model.PlanStockItem
 
 interface DashboardRepository {
     suspend fun fetchAdminDashboard(): ApiResult<DashboardData>
+    suspend fun changeAdminPassword(
+        currentPassword: String,
+        newPassword: String,
+        confirmPassword: String
+    ): ApiResult<String>
 }
 
 class RemoteDashboardRepository(
@@ -145,6 +150,26 @@ class RemoteDashboardRepository(
         }
     }
 
+    override suspend fun changeAdminPassword(
+        currentPassword: String,
+        newPassword: String,
+        confirmPassword: String
+    ): ApiResult<String> {
+        return when (
+            val res = networkGateway.postForm(
+                action = "admin_change_password",
+                fields = mapOf(
+                    "password" to currentPassword,
+                    "npass" to newPassword,
+                    "cnpass" to confirmPassword
+                )
+            )
+        ) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(data = res.message, message = res.message)
+        }
+    }
+    
     private fun parseMonthlyRegistered(arr: JsonArray?): List<MonthlyCountPoint> =
         arr?.mapNotNull { el ->
             val o = el.asObjOrNull() ?: return@mapNotNull null
