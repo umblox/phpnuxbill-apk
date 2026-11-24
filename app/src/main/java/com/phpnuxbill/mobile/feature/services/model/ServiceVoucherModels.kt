@@ -113,7 +113,7 @@ data class VoucherItem(
     val idPlan: Int,
     val code: String,
     val user: String,
-    val status: String, // "0" = Unused, "1" = Used
+    val status: String,
     val generatedByName: String,
     val batchName: String,
     val namePlan: String,
@@ -189,7 +189,14 @@ enum class ActiveServiceSheetMode {
 
 data class RechargeFormState(
     val customerId: Int = 0,
+    val isCustomerLocked: Boolean = false,
+    val lockedCustomerName: String = "",
+    val lockedCustomerUsername: String = "",
+    val lockedCustomerServiceType: String = "",
+    val lockedCustomerBalance: Double = 0.0,
     val customerQuery: String = "",
+    val serviceType: String = "All",
+    val server: String = "",
     val planId: Int = 0,
     val usingMethod: String = "Cash",
     val note: String = "",
@@ -199,6 +206,10 @@ data class RechargeFormState(
 
 data class DepositFormState(
     val customerId: Int = 0,
+    val isCustomerLocked: Boolean = false,
+    val lockedCustomerName: String = "",
+    val lockedCustomerUsername: String = "",
+    val lockedCustomerBalance: Double = 0.0,
     val customerQuery: String = "",
     val planId: Int = 0,
     val customAmount: String = "",
