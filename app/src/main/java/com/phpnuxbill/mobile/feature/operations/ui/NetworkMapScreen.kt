@@ -407,6 +407,7 @@ private fun buildNetworkCoverageLeafletHtml(points: List<MapPointItem>, isEn: Bo
                 .badge-ok { background: #dcfce7; color: #166534; }
                 .badge-warn { background: #fef3c7; color: #92400e; }
                 .badge-info { background: #e0f2fe; color: #075985; }
+                .dark-tiles .leaflet-tile-pane { filter: invert(100%) hue-rotate(180deg) brightness(92%) contrast(90%); }
             </style>
         </head>
         <body>
@@ -441,16 +442,23 @@ private fun buildNetworkCoverageLeafletHtml(points: List<MapPointItem>, isEn: Bo
                 }
 
                 function setBaseLayer(style) {
-                    if (!map || typeof L === 'undefined') return;
-                    if (currentTile) map.removeLayer(currentTile);
-                    var url = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-                    if (style === 'dark') {
-                        url = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-                    } else if (style === 'satellite') {
-                        url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-                    }
-                    currentTile = L.tileLayer(url, { maxZoom: 19 }).addTo(map);
-                }
+    if (!map || typeof L === 'undefined') return;
+    if (currentTile) map.removeLayer(currentTile);
+    var mapEl = document.getElementById('map');
+    if (mapEl) mapEl.classList.remove('dark-tiles');
+
+    var url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    var opts = { maxZoom: 19, attribution: '© OpenStreetMap' };
+
+    if (style === 'dark') {
+        url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+        if (mapEl) mapEl.classList.add('dark-tiles');
+    } else if (style === 'satellite') {
+        url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+        opts = { maxZoom: 19, attribution: '© Esri World Imagery' };
+    }
+    currentTile = L.tileLayer(url, opts).addTo(map);
+}
 
                 window.applyMapState = function(showR, showCov, showUncov, showO, showA, style) {
                     stateCache = { r: !!showR, cov: !!showCov, uncov: !!showUncov, o: !!showO, a: !!showA, style: style || 'standard' };
