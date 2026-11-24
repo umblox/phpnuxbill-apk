@@ -98,6 +98,7 @@ fun AdminDashboardScreen(
     viewModel: DashboardViewModel,
     session: SessionState,
     onOpenDrawer: () -> Unit,
+    onOpenAccount: () -> Unit = {},
     onNavigate: (AdminDestination) -> Unit,
     onSwitchServerClick: () -> Unit = {},
     onLogoutClick: () -> Unit = {}
@@ -155,11 +156,16 @@ fun AdminDashboardScreen(
                     IconButton(onClick = { viewModel.loadDashboard(isPullRefresh = true) }) {
                         Icon(Icons.Outlined.Refresh, contentDescription = strings.refresh)
                     }
-                    Box(modifier = Modifier.padding(end = 10.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .padding(end = 10.dp)
+                            .clip(CircleShape)
+                            .clickable(onClick = onOpenAccount)
+                    ) {
                         AdminAvatarCircle(
                             photoUrl = loadedData?.adminProfile?.photoUrl.orEmpty(),
                             fullname = loadedData?.adminProfile?.fullname?.ifBlank { session.username } ?: session.username,
-                            size = 32.dp
+                            size = 34.dp
                         )
                     }
                 },
