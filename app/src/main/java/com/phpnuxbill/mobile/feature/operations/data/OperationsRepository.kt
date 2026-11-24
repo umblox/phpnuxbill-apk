@@ -461,7 +461,8 @@ override suspend fun getNetworkMapData(): ApiResult<NetworkMapData> {
                         lng = lng,
                         radiusMeters = cov,
                         coveredCount = covCount,
-                        routerName = o.str("name")
+                        routerName = o.str("name"),
+                        status = o.str("status").ifBlank { if (o.intVal("enabled") == 0) "Offline" else "Online" }
                     )
                     parsedRouters.add(rItem)
                 }
@@ -562,11 +563,13 @@ override suspend fun getNetworkMapData(): ApiResult<NetworkMapData> {
                     points.add(
                         MapPointItem(
                             id = o.intVal("id"),
-                            title = o.str("name").ifBlank { "Asset" },
-                            subtitle = "${o.str("category")} • ${o.str("condition")}",
-                            category = "asset",
-                            lat = lat,
-                            lng = lng
+                            title = if (o.str("asset_tag").isNotBlank()) "${o.str("name")} (${o.str("asset_tag")})" else o.str("name").ifBlank { "Asset" },
+subtitle = "${o.str("category")} • ${o.str("status").ifBlank { "Active" }} • ${o.str("condition").ifBlank { "Good" }}",
+category = "asset",
+lat = lat,
+lng = lng,
+status = o.str("status").ifBlank { "Active" },
+condition = o.str("condition").ifBlank { "Good" }
                         )
                     )
                 }
