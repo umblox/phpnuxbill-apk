@@ -24,7 +24,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -33,14 +36,18 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
@@ -56,6 +63,9 @@ import coil.request.ImageRequest
 import com.phpnuxbill.mobile.R
 import com.phpnuxbill.mobile.core.i18n.AppLanguage
 import com.phpnuxbill.mobile.core.i18n.LocalAppStrings
+import com.phpnuxbill.mobile.core.ui.theme.BrandBlue600
+import com.phpnuxbill.mobile.core.ui.theme.BrandNavy900
+import com.phpnuxbill.mobile.core.ui.theme.BrandTeal500
 import com.phpnuxbill.mobile.core.ui.theme.StatusDangerBgLight
 import com.phpnuxbill.mobile.core.ui.theme.StatusDangerFgLight
 import com.phpnuxbill.mobile.core.ui.theme.StatusSuccessBgLight
@@ -109,6 +119,149 @@ fun BrandLogo(
                     .fillMaxSize()
                     .clip(shape)
             )
+        }
+    }
+}
+
+/**
+ * Layar transisi singkat (<100ms) saat DataStore membaca sesi login agar LoginScreen tidak berkilas.
+ */
+@Composable
+fun AppStartupSplashScreen() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(BrandNavy900, BrandBlue600))),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            BrandLogo(
+                customLocalLogoPath = "",
+                serverLogoUrl = "",
+                size = 84.dp,
+                shape = RoundedCornerShape(22.dp)
+            )
+            CircularProgressIndicator(
+                modifier = Modifier.size(26.dp),
+                strokeWidth = 2.5.dp,
+                color = Color.White.copy(alpha = 0.9f)
+            )
+        }
+    }
+}
+
+/**
+ * Floating Snackbar / Toast modern lebar penuh dengan proteksi Navigation Bar + Keyboard,
+ * ikon semantik otomatis (Sukses / Error / Info), dan tombol tutup cepat.
+ */
+@Composable
+fun AppFloatingSnackbarHost(
+    hostState: SnackbarHostState,
+    modifier: Modifier = Modifier
+) {
+    SnackbarHost(
+        hostState = hostState,
+        modifier = modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .imePadding()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) { snackbarData ->
+        val rawMsg = snackbarData.visuals.message
+        val lower = rawMsg.lowercase()
+
+        val isError = listOf(
+            "gagal", "error", "salah", "tidak ", "ditolak", "belum", "kurang",
+            "failed", "invalid", "denied", "insufficient", "not found", "missing",
+            "expired", "kedaluwarsa", "kadaluarsa", "sudah dipakai", "sudah terdaftar", "already"
+        ).any { lower.contains(it) }
+
+        val isSuccess = !isError && listOf(
+            "berhasil", "sukses", "lunas", "disimpan", "diperbarui", "dibuat",
+            "diaktifkan", "dihapus", "terkirim", "terhubung", "ditambah", "selesai",
+            "success", "saved", "updated", "created", "deleted", "paid", "activated", "sent", "connected"
+        ).any { lower.contains(it) }
+
+        val accentColor = when {
+            isError -> MaterialTheme.colorScheme.error
+            isSuccess -> BrandTeal500
+            else -> BrandBlue600
+        }
+        val statusIcon = when {
+            isError -> Icons.Outlined.ErrorOutline
+            isSuccess -> Icons.Outlined.CheckCircle
+            else -> Icons.Outlined.Info
+        }
+
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+            shadowElevation = 10.dp,
+            border = BorderStroke(1.5.dp, accentColor.copy(alpha = 0.72f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(accentColor.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = statusIcon,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Text(
+                    text = rawMsg,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+
+                val actionLabel = snackbarData.visuals.actionLabel
+                if (!actionLabel.isNullOrBlank()) {
+                    TextButton(
+                        onClick = { snackbarData.performAction() },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = actionLabel,
+                            color = accentColor,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = { snackbarData.dismiss() },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = "Dismiss",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
         }
     }
 }
@@ -172,6 +325,7 @@ fun AppScreenScaffold(
     subtitle: String? = null,
     onBack: (() -> Unit)? = null,
     actions: @Composable () -> Unit = {},
+    snackbarHost: @Composable () -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
     floatingActionButton: @Composable () -> Unit = {},
     content: @Composable (PaddingValues) -> Unit
@@ -224,6 +378,7 @@ fun AppScreenScaffold(
                 )
             )
         },
+        snackbarHost = snackbarHost,
         bottomBar = {
             Box(modifier = Modifier.navigationBarsPadding()) {
                 bottomBar()
