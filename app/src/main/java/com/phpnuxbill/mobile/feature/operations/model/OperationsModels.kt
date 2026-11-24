@@ -131,14 +131,19 @@ data class AssetItem(
     val coordinates: String,
     val conditionStatus: String,
     val purchaseDate: String,
-    val notes: String
+    val notes: String,
+    val assetTag: String = "",
+    val modelName: String = "",
+    val status: String = "Active",
+    val warrantyExpiry: String = "",
+    val assignedToName: String = ""
 )
 
 data class AssetFormState(
     val isOpen: Boolean = false,
     val id: Int = 0,
     val name: String = "",
-    val category: String = "ODP/ODC",
+    val category: String = "Network Equipment",
     val brand: String = "",
     val serialNumber: String = "",
     val cost: String = "0",
@@ -147,6 +152,10 @@ data class AssetFormState(
     val conditionStatus: String = "Good",
     val purchaseDate: String = "",
     val notes: String = "",
+    val assetTag: String = "",
+    val modelName: String = "",
+    val status: String = "Active",
+    val warrantyExpiry: String = "",
     val isSaving: Boolean = false,
     val error: String? = null
 )
