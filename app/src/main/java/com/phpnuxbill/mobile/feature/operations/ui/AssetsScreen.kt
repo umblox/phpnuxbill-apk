@@ -429,7 +429,7 @@ fun AssetsScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("All", "Active", "Under Maintenance", "Inactive").forEach { st ->
+                    items(listOf("All", "Active", "Under Maintenance", "Inactive")) { st ->
                         FilterChip(
                             selected = statusFilter.equals(st, ignoreCase = true),
                             onClick = { statusFilter = st },
