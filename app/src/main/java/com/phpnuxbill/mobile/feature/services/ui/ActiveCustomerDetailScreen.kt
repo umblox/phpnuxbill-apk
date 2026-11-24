@@ -407,65 +407,65 @@ fun ActiveCustomerDetailScreen(
 
                     // 4. DATA BILLING & LANGGANAN LENGKAP
                     item(key = "billing_info") {
-                      if (d.customerId > 0 || d.packageId > 0) {
-                        val daysLeft = remember(d.expiration) { calcServiceDaysRemaining(d.expiration) }
-                        val expBadge = remember(daysLeft, isPkgOn, isEn) {
-                            formatRemainingDaysLabel(daysLeft, isPkgOn, isEn)
-                        }
-                        DetailInfoCard(
-                            title = labels.billingInfoTitle,
-                            icon = Icons.Outlined.AccountBalanceWallet
-                        ) {
-                            DetailKeyValueRow(if (isEn) "Package" else "Paket Aktif", d.planName, highlight = true)
-                            DetailKeyValueRow(
-                                if (isEn) "Billing Status" else "Status Paket",
-                                "${if (isPkgOn) "ACTIVE (ON)" else "EXPIRED (OFF)"}${if (expBadge.isNotBlank()) " • $expBadge" else ""}",
-                                highlight = isPkgOn
-                            )
-                            DetailKeyValueRow(if (isEn) "Bandwidth Rate" else "Kecepatan Paket", d.rateLabel)
-                            DetailKeyValueRow(if (isEn) "Validity" else "Durasi Paket", d.validityLabel)
-                            DetailKeyValueRow(if (isEn) "Plan Price" else "Harga Paket", formatMoney(currencyCode, d.price))
-                            DetailKeyValueRow(if (isEn) "Customer Balance" else "Saldo Pelanggan", formatMoney(currencyCode, d.balance), highlight = true)
-                            DetailKeyValueRow(
-                                if (isEn) "Auto-Renewal" else "Perpanjang Otomatis",
-                                if (d.autoRenewal) (if (isEn) "Enabled" else "Aktif") else (if (isEn) "Disabled" else "Nonaktif")
-                            )
-                            DetailKeyValueRow(if (isEn) "Recharged On" else "Tanggal Aktif", "${d.rechargedOn} ${d.rechargedTime}".trim())
-                            DetailKeyValueRow(if (isEn) "Expires On" else "Jatuh Tempo", "${d.expiration} ${d.expirationTime}".trim())
-                            DetailKeyValueRow(if (isEn) "Payment Method" else "Metode Bayar", d.method)
-                            DetailKeyValueRow(if (isEn) "Account Type / Status" else "Tipe / Status Akun", "${d.accountType} • ${d.accountStatus}")
-                            if (d.pppoeUsername.isNotBlank()) {
-                                DetailKeyValueRow("PPPoE User", d.pppoeUsername, monospace = true)
+                        if (d.customerId > 0 || d.packageId > 0) {
+                            val daysLeft = remember(d.expiration) { calcServiceDaysRemaining(d.expiration) }
+                            val expBadge = remember(daysLeft, isPkgOn, isEn) {
+                                formatRemainingDaysLabel(daysLeft, isPkgOn, isEn)
                             }
-                            if (d.pppoeIp.isNotBlank()) {
-                                DetailKeyValueRow("PPPoE Static IP", d.pppoeIp, monospace = true)
-                            }
-                            if (d.phonenumber.isNotBlank()) {
-                                DetailKeyValueRow(if (isEn) "Phone" else "No. HP", d.phonenumber)
-                            }
-                            if (d.address.isNotBlank() || d.city.isNotBlank()) {
+                            DetailInfoCard(
+                                title = labels.billingInfoTitle,
+                                icon = Icons.Outlined.AccountBalanceWallet
+                            ) {
+                                DetailKeyValueRow(if (isEn) "Package" else "Paket Aktif", d.planName, highlight = true)
                                 DetailKeyValueRow(
-                                    if (isEn) "Location" else "Alamat",
-                                    listOf(d.address, d.city).filter { it.isNotBlank() }.joinToString(", ")
+                                    if (isEn) "Billing Status" else "Status Paket",
+                                    "${if (isPkgOn) "ACTIVE (ON)" else "EXPIRED (OFF)"}${if (expBadge.isNotBlank()) " • $expBadge" else ""}",
+                                    highlight = isPkgOn
+                                )
+                                DetailKeyValueRow(if (isEn) "Bandwidth Rate" else "Kecepatan Paket", d.rateLabel)
+                                DetailKeyValueRow(if (isEn) "Validity" else "Durasi Paket", d.validityLabel)
+                                DetailKeyValueRow(if (isEn) "Plan Price" else "Harga Paket", formatMoney(currencyCode, d.price))
+                                DetailKeyValueRow(if (isEn) "Customer Balance" else "Saldo Pelanggan", formatMoney(currencyCode, d.balance), highlight = true)
+                                DetailKeyValueRow(
+                                    if (isEn) "Auto-Renewal" else "Perpanjang Otomatis",
+                                    if (d.autoRenewal) (if (isEn) "Enabled" else "Aktif") else (if (isEn) "Disabled" else "Nonaktif")
+                                )
+                                DetailKeyValueRow(if (isEn) "Recharged On" else "Tanggal Aktif", "${d.rechargedOn} ${d.rechargedTime}".trim())
+                                DetailKeyValueRow(if (isEn) "Expires On" else "Jatuh Tempo", "${d.expiration} ${d.expirationTime}".trim())
+                                DetailKeyValueRow(if (isEn) "Payment Method" else "Metode Bayar", d.method)
+                                DetailKeyValueRow(if (isEn) "Account Type / Status" else "Tipe / Status Akun", "${d.accountType} • ${d.accountStatus}")
+                                if (d.pppoeUsername.isNotBlank()) {
+                                    DetailKeyValueRow("PPPoE User", d.pppoeUsername, monospace = true)
+                                }
+                                if (d.pppoeIp.isNotBlank()) {
+                                    DetailKeyValueRow("PPPoE Static IP", d.pppoeIp, monospace = true)
+                                }
+                                if (d.phonenumber.isNotBlank()) {
+                                    DetailKeyValueRow(if (isEn) "Phone" else "No. HP", d.phonenumber)
+                                }
+                                if (d.address.isNotBlank() || d.city.isNotBlank()) {
+                                    DetailKeyValueRow(
+                                        if (isEn) "Location" else "Alamat",
+                                        listOf(d.address, d.city).filter { it.isNotBlank() }.joinToString(", ")
+                                    )
+                                }
+                            }
+                        } else {
+                            DetailInfoCard(
+                                title = labels.billingInfoTitle,
+                                icon = Icons.Outlined.AccountBalanceWallet
+                            ) {
+                                Text(
+                                    text = if (isEn) {
+                                        "Direct MikroTik session (voucher or manual router account, not linked to a billing customer profile)."
+                                    } else {
+                                        "Sesi langsung MikroTik (voucher lepas atau akun manual router, tidak terikat ke profil pelanggan billing)."
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
-                    }
-                } else {
-                         DetailInfoCard(
-                             title = labels.billingInfoTitle,
-                             icon = Icons.Outlined.AccountBalanceWallet
-                         ) {
-                             Text(
-                                 text = if (isEn) {
-                                     "Direct MikroTik session (voucher or manual router account, not linked to a billing customer profile)."
-                                 } else {
-                                     "Sesi langsung MikroTik (voucher lepas atau akun manual router, tidak terikat ke profil pelanggan billing)."
-                                 },
-                                 style = MaterialTheme.typography.bodySmall,
-                                 color = MaterialTheme.colorScheme.onSurfaceVariant
-                             )
-                         }
                     }
 
                     // 5. ATRIBUT TAMBAHAN (CUSTOM FIELDS)
@@ -822,7 +822,7 @@ private fun ActiveDetailQuickActionsBar(
                 }
             }
         }
-        if (!isPkgOn && canExtend) {
+        if (!isPkgOn && canExtend && detail.packageId > 0) {
             item {
                 FilledTonalButton(
                     onClick = onExtend,
@@ -881,18 +881,18 @@ private fun ActiveDetailQuickActionsBar(
             }
         }
         if (detail.customerId > 0 || detail.packageId > 0) {
-         item {
-             OutlinedButton(
-                 onClick = onReceipt,
-                 shape = RoundedCornerShape(12.dp),
-                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
-             ) {
-                 Icon(Icons.AutoMirrored.Outlined.ReceiptLong, contentDescription = null, modifier = Modifier.size(16.dp))
-                 Spacer(modifier = Modifier.width(6.dp))
-                 Text("Invoice")
-             }
-         }
-     }
+            item {
+                OutlinedButton(
+                    onClick = onReceipt,
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Outlined.ReceiptLong, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Invoice")
+                }
+            }
+        }
         if (detail.phonenumber.isNotBlank()) {
             item {
                 OutlinedButton(
