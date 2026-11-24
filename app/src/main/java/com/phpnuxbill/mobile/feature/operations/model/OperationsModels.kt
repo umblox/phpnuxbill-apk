@@ -152,18 +152,30 @@ data class AssetFormState(
 )
 
 data class MapPointItem(
+    val id: Int = 0,
     val title: String,
     val subtitle: String,
-    val category: String, // customer_on | customer_off | router | asset
+    val category: String, // router | customer_on | customer_off | odp | asset
     val lat: Double,
     val lng: Double,
-    val radiusMeters: Int = 0
+    val radiusMeters: Int = 0,
+    val isCovered: Boolean = false,
+    val coveredBy: String = "",
+    val nearestRouter: String = "",
+    val nearestDistanceM: Int = -1,
+    val coveredCount: Int = 0,
+    val routerName: String = "",
+    val phone: String = "",
+    val serviceType: String = ""
 )
 
 data class NetworkMapData(
     val customersCount: Int = 0,
     val routersCount: Int = 0,
+    val odpsCount: Int = 0,
     val assetsCount: Int = 0,
+    val coveredCustomersCount: Int = 0,
+    val uncoveredCustomersCount: Int = 0,
     val points: List<MapPointItem> = emptyList()
 )
 
