@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.phpnuxbill.mobile.core.datastore.SessionStorage
+import com.phpnuxbill.mobile.core.i18n.AppLanguage
 import com.phpnuxbill.mobile.core.model.ApiResult
 import com.phpnuxbill.mobile.core.model.AppThemeMode
 import com.phpnuxbill.mobile.core.model.UiState
@@ -25,8 +26,18 @@ class DashboardViewModel(
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
+    private val _isChangingPassword = MutableStateFlow(false)
+    val isChangingPassword: StateFlow<Boolean> = _isChangingPassword.asStateFlow()
+
+    private val _accountMessage = MutableStateFlow<String?>(null)
+    val accountMessage: StateFlow<String?> = _accountMessage.asStateFlow()
+
     init {
         loadDashboard(isPullRefresh = false)
+    }
+
+    fun clearAccountMessage() {
+        _accountMessage.value = null
     }
 
     fun loadDashboard(isPullRefresh: Boolean = false) {
@@ -48,6 +59,41 @@ class DashboardViewModel(
                 }
             }
             _isRefreshing.value = false
+        }
+    }
+
+    fun changeAdminPassword(
+        currentPassword: String,
+        newPassword: String,
+        confirmPassword: String,
+        onSuccess: () -> Unit
+    ) {
+        if (_isChangingPassword.value) return
+        viewModelScope.launch {
+            _isChangingPassword.value = true
+            when (
+                val res = dashboardRepository.changeAdminPassword(
+                    currentPassword = currentPassword,
+                    newPassword = newPassword,
+                    confirmPassword = confirmPassword
+                )
+            ) {
+                is ApiResult.Success -> {
+                    _isChangingPassword.value = false
+                    _accountMessage.value = res.message
+                    onSuccess()
+                }
+                is ApiResult.Error -> {
+                    _isChangingPassword.value = false
+                    _accountMessage.value = res.message
+                }
+            }
+        }
+    }
+
+    fun setAppLanguage(language: AppLanguage) {
+        viewModelScope.launch {
+            sessionStorage.setLanguage(language.code)
         }
     }
 
