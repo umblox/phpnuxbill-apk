@@ -12,6 +12,8 @@ import com.phpnuxbill.mobile.core.model.SessionState
 import com.phpnuxbill.mobile.core.model.UserRole
 import com.phpnuxbill.mobile.feature.auth.data.AuthRepository
 import com.phpnuxbill.mobile.feature.auth.model.LoginUiState
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -25,10 +27,18 @@ class AuthViewModel(
     private val sessionStorage: SessionStorage
 ) : ViewModel() {
 
-    val sessionState: StateFlow<SessionState> = sessionStorage.sessionFlow
+    val bootstrapSession: StateFlow<SessionState?> = sessionStorage.sessionFlow
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
+            started = SharingStarted.Eagerly,
+            initialValue = null
+        )
+
+    val sessionState: StateFlow<SessionState> = bootstrapSession
+        .map { it ?: SessionState() }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
             initialValue = SessionState()
         )
 
@@ -37,7 +47,7 @@ class AuthViewModel(
 
     init {
         viewModelScope.launch {
-            sessionStorage.sessionFlow.collect { session ->
+            bootstrapSession.filterNotNull().collect { session ->
                 _uiState.update { current ->
                     val shouldFillUrl = current.serverUrl.isBlank() && session.activeServerUrl.isNotBlank()
                     val shouldFillUser = current.username.isBlank() && session.username.isNotBlank()
