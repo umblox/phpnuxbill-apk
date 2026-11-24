@@ -148,6 +148,7 @@ fun CustomerScreen(
             onConfirm = viewModel::applyPickedCoordinates,
             onDismiss = viewModel::closeMapPicker
         )
+        return
     }
 
     if (deleteCandidate != null && canEditOrDelete) {
