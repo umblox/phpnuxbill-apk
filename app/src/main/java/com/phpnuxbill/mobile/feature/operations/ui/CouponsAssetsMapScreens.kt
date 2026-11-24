@@ -2,12 +2,6 @@
 
 package com.phpnuxbill.mobile.feature.operations.ui
 
-import android.annotation.SuppressLint
-import android.view.ViewGroup
-import android.webkit.WebChromeClient
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -19,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,14 +23,11 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.Menu
-import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -60,9 +50,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -70,9 +58,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.google.gson.Gson
 import com.phpnuxbill.mobile.core.i18n.LocalAppStrings
 import com.phpnuxbill.mobile.core.model.SessionState
 import com.phpnuxbill.mobile.core.model.UiState
@@ -82,7 +68,6 @@ import com.phpnuxbill.mobile.core.ui.components.ErrorStateView
 import com.phpnuxbill.mobile.core.ui.components.LoadingStateView
 import com.phpnuxbill.mobile.core.ui.components.StatusBadge
 import com.phpnuxbill.mobile.feature.dashboard.ui.formatMoney
-import com.phpnuxbill.mobile.feature.operations.model.MapPointItem
 import com.phpnuxbill.mobile.feature.operations.model.OperationsLabels
 
 @Composable
@@ -490,332 +475,4 @@ fun CouponsAndAssetsScreen(
             }
         }
     }
-}
-
-@SuppressLint("SetJavaScriptEnabled")
-@Composable
-fun NetworkMapScreen(
-    viewModel: OperationsViewModel,
-    session: SessionState,
-    onOpenDrawer: () -> Unit
-) {
-    val mapState by viewModel.mapState.collectAsStateWithLifecycle()
-    val strings = LocalAppStrings.current
-    var showRouters by remember { mutableStateOf(true) }
-    var showCustomers by remember { mutableStateOf(true) }
-    var showAssets by remember { mutableStateOf(true) }
-    var mapLayer by remember { mutableStateOf("standard") } // standard | dark | satellite
-    var webViewRef by remember { mutableStateOf<WebView?>(null) }
-
-    LaunchedEffect(Unit) {
-        viewModel.ensureMapLoaded()
-    }
-
-    LaunchedEffect(showRouters, showCustomers, showAssets, mapLayer, webViewRef) {
-        val wv = webViewRef ?: return@LaunchedEffect
-        wv.evaluateJavascript(
-            "if(window.applyMapState){window.applyMapState($showRouters,$showCustomers,$showAssets,'$mapLayer');}",
-            null
-        )
-    }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                navigationIcon = {
-                    IconButton(onClick = onOpenDrawer) { Icon(Icons.Outlined.Menu, contentDescription = "Menu") }
-                },
-                title = {
-                    Column {
-                        Text(strings.menuMap, style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            text = session.effectiveCompanyName,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = {
-                            mapLayer = when (mapLayer) {
-                                "standard" -> "dark"
-                                "dark" -> "satellite"
-                                else -> "standard"
-                            }
-                        }
-                    ) {
-                        Icon(Icons.Outlined.Layers, contentDescription = "Switch Layer")
-                    }
-                    IconButton(onClick = viewModel::loadNetworkMap) {
-                        Icon(Icons.Outlined.Refresh, contentDescription = strings.refresh)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
-            )
-        }
-    ) { innerPadding ->
-        when (val st = mapState) {
-            is UiState.Idle, is UiState.Loading -> LoadingStateView(modifier = Modifier.padding(innerPadding))
-            is UiState.Error -> ErrorStateView(
-                message = st.message,
-                onRetry = viewModel::loadNetworkMap,
-                modifier = Modifier.padding(innerPadding)
-            )
-            is UiState.Success -> {
-                val data = st.data
-                val html = remember(data.points) { buildNetworkOverviewLeafletHtml(data.points) }
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                ) {
-                    LazyRow(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surface)
-                            .padding(horizontal = 16.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        item {
-                            FilterChip(
-                                selected = showRouters,
-                                onClick = { showRouters = !showRouters },
-                                label = { Text("Routers (${data.routersCount})") }
-                            )
-                        }
-                        item {
-                            FilterChip(
-                                selected = showCustomers,
-                                onClick = { showCustomers = !showCustomers },
-                                label = { Text("Users (${data.customersCount})") }
-                            )
-                        }
-                        item {
-                            FilterChip(
-                                selected = showAssets,
-                                onClick = { showAssets = !showAssets },
-                                label = { Text("Assets (${data.assetsCount})") }
-                            )
-                        }
-                        item {
-                            val layerLabel = when (mapLayer) {
-                                "dark" -> "Dark"
-                                "satellite" -> "Satellite"
-                                else -> "Map"
-                            }
-                            FilterChip(
-                                selected = true,
-                                onClick = {
-                                    mapLayer = when (mapLayer) {
-                                        "standard" -> "dark"
-                                        "dark" -> "satellite"
-                                        else -> "standard"
-                                    }
-                                },
-                                label = { Text(layerLabel) }
-                            )
-                        }
-                    }
-
-                    key(data.points) {
-                        AndroidView(
-                            modifier = Modifier.fillMaxSize(),
-                            factory = { ctx ->
-                                WebView(ctx).apply {
-                                    layoutParams = ViewGroup.LayoutParams(
-                                        ViewGroup.LayoutParams.MATCH_PARENT,
-                                        ViewGroup.LayoutParams.MATCH_PARENT
-                                    )
-                                    settings.javaScriptEnabled = true
-                                    settings.domStorageEnabled = true
-                                    settings.loadWithOverviewMode = true
-                                    settings.useWideViewPort = true
-                                    settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                                    settings.userAgentString = "PHPNuxBillMobile/3.0 (Android; Mobile)"
-                                    webChromeClient = WebChromeClient()
-                                    webViewClient = object : WebViewClient() {
-                                        override fun onPageFinished(view: WebView?, url: String?) {
-                                            view?.evaluateJavascript(
-                                                "if(window.applyMapState){window.applyMapState($showRouters,$showCustomers,$showAssets,'$mapLayer');}",
-                                                null
-                                            )
-                                        }
-                                    }
-                                    loadDataWithBaseURL(
-                                        "https://localhost/",
-                                        html,
-                                        "text/html",
-                                        "UTF-8",
-                                        null
-                                    )
-                                    webViewRef = this
-                                }
-                            }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun buildNetworkOverviewLeafletHtml(points: List<MapPointItem>): String {
-    val validPoints = points.filter { it.lat != 0.0 || it.lng != 0.0 }
-    val pointsJson = Gson().toJson(validPoints).replace("</", "<\\/")
-
-    return """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8" />
-            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-            <style>
-                html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; background: #0f172a; font-family: sans-serif; }
-                #status-box {
-                    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-                    color: #e2e8f0; background: rgba(15,23,42,0.9); padding: 14px 18px;
-                    border-radius: 12px; font-size: 13px; text-align: center; z-index: 9999;
-                }
-            </style>
-        </head>
-        <body>
-            <div id="status-box">Memuat peta jaringan...</div>
-            <div id="map"></div>
-            <script>
-                var POINTS = $pointsJson;
-                var map = null;
-                var currentTile = null;
-                var layerGroups = { router: null, customer: null, asset: null };
-                var stateCache = { r: true, c: true, a: true, style: 'standard' };
-
-                function esc(s) {
-                    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-                }
-
-                function setBaseLayer(style) {
-                    if (!map || typeof L === 'undefined') return;
-                    if (currentTile) map.removeLayer(currentTile);
-                    var url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-                    if (style === 'dark') {
-                        url = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-                    } else if (style === 'satellite') {
-                        url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-                    }
-                    currentTile = L.tileLayer(url, { maxZoom: 19 }).addTo(map);
-                }
-
-                window.applyMapState = function(showR, showC, showA, style) {
-                    stateCache = { r: !!showR, c: !!showC, a: !!showA, style: style || 'standard' };
-                    if (!map) return;
-                    setBaseLayer(stateCache.style);
-                    if (layerGroups.router) {
-                        if (stateCache.r) layerGroups.router.addTo(map); else map.removeLayer(layerGroups.router);
-                    }
-                    if (layerGroups.customer) {
-                        if (stateCache.c) layerGroups.customer.addTo(map); else map.removeLayer(layerGroups.customer);
-                    }
-                    if (layerGroups.asset) {
-                        if (stateCache.a) layerGroups.asset.addTo(map); else map.removeLayer(layerGroups.asset);
-                    }
-                };
-
-                function initMap() {
-                    var box = document.getElementById('status-box');
-                    if (typeof L === 'undefined') {
-                        if (box) box.innerText = 'Gagal memuat library peta. Periksa koneksi internet.';
-                        return;
-                    }
-                    if (box) box.style.display = 'none';
-
-                    var defaultLat = POINTS.length > 0 ? POINTS[0].lat : -6.200000;
-                    var defaultLng = POINTS.length > 0 ? POINTS[0].lng : 106.816666;
-                    map = L.map('map', { zoomControl: true }).setView([defaultLat, defaultLng], 14);
-                    setBaseLayer(stateCache.style);
-
-                    layerGroups.router = L.layerGroup();
-                    layerGroups.customer = L.layerGroup();
-                    layerGroups.asset = L.layerGroup();
-
-                    var bounds = [];
-                    for (var i = 0; i < POINTS.length; i++) {
-                        var p = POINTS[i];
-                        if (typeof p.lat !== 'number' || typeof p.lng !== 'number') continue;
-                        bounds.push([p.lat, p.lng]);
-
-                        var color = '#D97706';
-                        var targetGroup = layerGroups.asset;
-                        if (p.category === 'router') {
-                            color = '#0284C7';
-                            targetGroup = layerGroups.router;
-                            if (p.radiusMeters && p.radiusMeters > 0) {
-                                L.circle([p.lat, p.lng], {
-                                    color: color,
-                                    weight: 1.5,
-                                    fillOpacity: 0.14,
-                                    radius: p.radiusMeters
-                                }).addTo(targetGroup);
-                            }
-                        } else if (p.category === 'customer_on') {
-                            color = '#16A34A';
-                            targetGroup = layerGroups.customer;
-                        } else if (p.category === 'customer_off') {
-                            color = '#DC2626';
-                            targetGroup = layerGroups.customer;
-                        }
-
-                        L.circleMarker([p.lat, p.lng], {
-                            radius: p.category === 'router' ? 9 : 7,
-                            color: '#ffffff',
-                            weight: 2,
-                            fillColor: color,
-                            fillOpacity: 0.95
-                        }).bindPopup('<b>' + esc(p.title) + '</b><br/>' + esc(p.subtitle)).addTo(targetGroup);
-                    }
-
-                    window.applyMapState(stateCache.r, stateCache.c, stateCache.a, stateCache.style);
-                    if (bounds.length > 1) {
-                        map.fitBounds(bounds, { padding: [36, 36], maxZoom: 16 });
-                    }
-                    setTimeout(function() { map.invalidateSize(); }, 250);
-                }
-
-                var cdns = [
-                    {
-                        css: 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css',
-                        js: 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js'
-                    },
-                    {
-                        css: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
-                        js: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
-                    },
-                    {
-                        css: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',
-                        js: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'
-                    }
-                ];
-
-                function loadCdn(idx) {
-                    if (idx >= cdns.length) {
-                        initMap();
-                        return;
-                    }
-                    var link = document.createElement('link');
-                    link.rel = 'stylesheet';
-                    link.href = cdns[idx].css;
-                    document.head.appendChild(link);
-
-                    var script = document.createElement('script');
-                    script.src = cdns[idx].js;
-                    script.onload = function() { initMap(); };
-                    script.onerror = function() { loadCdn(idx + 1); };
-                    document.head.appendChild(script);
-                }
-
-                loadCdn(0);
-            </script>
-        </body>
-        </html>
-    """.trimIndent()
 }
