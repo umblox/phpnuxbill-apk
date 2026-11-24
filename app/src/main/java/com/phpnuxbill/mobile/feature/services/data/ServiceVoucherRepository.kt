@@ -4,6 +4,8 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.phpnuxbill.mobile.core.model.ApiResult
 import com.phpnuxbill.mobile.core.network.NetworkGateway
+import com.phpnuxbill.mobile.feature.services.model.ActiveCustomerDetailData
+import com.phpnuxbill.mobile.feature.services.model.ActiveCustomerTrxItem
 import com.phpnuxbill.mobile.feature.services.model.CustomerOption
 import com.phpnuxbill.mobile.feature.services.model.DepositFormState
 import com.phpnuxbill.mobile.feature.services.model.GenerateVoucherFormState
@@ -18,15 +20,35 @@ import com.phpnuxbill.mobile.feature.services.model.VoucherItem
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 
-/**
- * Kontrak Repository Layanan Aktif, Isi Ulang, Deposit, Voucher & Struk (SOLID - ISP)
- */
 interface ServiceVoucherRepository {
     suspend fun getPrepaidServices(
         search: String = "",
         status: String = "all",
-        limit: Int = 150
+        limit: Int = 180
     ): ApiResult<List<PrepaidServiceItem>>
+
+    suspend fun getActiveCustomerLiveDetail(
+        username: String,
+        customerId: Int,
+        router: String,
+        service: String
+    ): ApiResult<ActiveCustomerDetailData>
+
+    suspend fun kickActiveUser(
+        router: String,
+        service: String,
+        rosId: String,
+        username: String
+    ): ApiResult<String>
+
+    suspend fun syncCustomerToRouter(customerId: Int): ApiResult<String>
+
+    suspend fun editActiveService(
+        rechargeId: Int,
+        planId: Int,
+        expiration: String,
+        time: String
+    ): ApiResult<String>
 
     suspend fun getMetadata(): ApiResult<ServiceVoucherMetadata>
 
@@ -102,12 +124,162 @@ class RemoteServiceVoucherRepository(
                             routers = o.str("routers").ifBlank { "-" },
                             type = o.str("type").ifBlank { "Hotspot" },
                             price = o.doubleVal("price"),
-                            invoice = o.str("invoice")
+                            invoice = o.str("invoice"),
+                            pppoeUsername = o.str("pppoe_username"),
+                            pppoeIp = o.str("pppoe_ip"),
+                            accountStatus = o.str("account_status").ifBlank { "Active" }
                         )
                     )
                 }
                 ApiResult.Success(data = items, message = res.message)
             }
+        }
+    }
+
+    override suspend fun getActiveCustomerLiveDetail(
+        username: String,
+        customerId: Int,
+        router: String,
+        service: String
+    ): ApiResult<ActiveCustomerDetailData> {
+        val params = buildMap {
+            if (username.isNotBlank()) put("username", username.trim())
+            if (customerId > 0) put("customer_id", customerId.toString())
+            if (router.isNotBlank() && router != "-") put("router", router.trim())
+            if (service.isNotBlank()) put("service", service.trim())
+        }
+
+        return when (val res = networkGateway.get(action = "admin_user_live_traffic", params = params)) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> {
+                val root = res.data?.asObjOrNull() ?: return ApiResult.Error("Format data tidak valid.")
+                val cust = root.getAsJsonObject("customer")
+                val pkg = root.getAsJsonObject("active_package")
+
+                val customFields = root.getAsJsonArray("custom_fields")?.mapNotNull { el ->
+                    val o = el.asObjOrNull() ?: return@mapNotNull null
+                    val k = o.str("name")
+                    val v = o.str("value")
+                    if (k.isBlank()) null else (k to v)
+                }.orEmpty()
+
+                val recentTrx = root.getAsJsonArray("recent_transactions")?.mapNotNull { el ->
+                    val o = el.asObjOrNull() ?: return@mapNotNull null
+                    ActiveCustomerTrxItem(
+                        id = o.intVal("id"),
+                        invoice = o.str("invoice").ifBlank { "-" },
+                        planName = o.str("plan_name").ifBlank { "-" },
+                        price = o.doubleVal("price"),
+                        rechargedOn = o.str("recharged_on"),
+                        rechargedTime = o.str("recharged_time"),
+                        expiration = o.str("expiration"),
+                        method = o.str("method"),
+                        routers = o.str("routers"),
+                        type = o.str("type")
+                    )
+                }.orEmpty()
+
+                val detail = ActiveCustomerDetailData(
+                    online = root.boolVal("online"),
+                    rosId = root.str("ros_id"),
+                    activeDevices = root.intVal("active_devices"),
+                    username = root.str("username").ifBlank { username },
+                    service = root.str("service").ifBlank { service.ifBlank { "Hotspot" } },
+                    router = root.str("router").ifBlank { router.ifBlank { "-" } },
+                    routerId = root.intVal("router_id"),
+                    server = root.str("server").ifBlank { "-" },
+                    ipAddress = root.str("ip_address").ifBlank { "-" },
+                    macAddress = root.str("mac_address").ifBlank { "-" },
+                    uptime = root.str("uptime").ifBlank { "Offline" },
+                    sessionTime = root.str("session_time").ifBlank { "-" },
+                    idleTime = root.str("idle_time").ifBlank { "-" },
+                    loginBy = root.str("login_by").ifBlank { "-" },
+                    uploadBytes = root.str("upload_bytes").ifBlank { "0 B" },
+                    downloadBytes = root.str("download_bytes").ifBlank { "0 B" },
+                    totalBytes = root.str("total_bytes").ifBlank { "0 B" },
+                    rxBps = root.longVal("rx_bps"),
+                    txBps = root.longVal("tx_bps"),
+                    uploadKbps = root.doubleVal("upload_kbps"),
+                    downloadKbps = root.doubleVal("download_kbps"),
+                    uploadSpeedLabel = root.str("upload_speed_label").ifBlank { "0 bps" },
+                    downloadSpeedLabel = root.str("download_speed_label").ifBlank { "0 bps" },
+                    customerId = cust.intVal("id").takeIf { it > 0 } ?: customerId,
+                    fullname = cust.str("fullname").ifBlank { username },
+                    phonenumber = cust.str("phonenumber").takeUnless { it == "-" }.orEmpty(),
+                    address = cust.str("address").takeUnless { it == "-" }.orEmpty(),
+                    city = cust.str("city").takeUnless { it == "-" }.orEmpty(),
+                    balance = cust.doubleVal("balance"),
+                    accountType = cust.str("account_type").ifBlank { "Personal" },
+                    accountStatus = cust.str("status").ifBlank { "Active" },
+                    autoRenewal = cust.intVal("auto_renewal") == 1,
+                    pppoeUsername = cust.str("pppoe_username"),
+                    pppoeIp = cust.str("pppoe_ip"),
+                    lastLogin = cust.str("last_login").ifBlank { "-" },
+                    packageId = pkg.intVal("id"),
+                    planId = pkg.intVal("plan_id"),
+                    planName = pkg.str("namebp").ifBlank { "-" },
+                    packageStatus = pkg.str("status").ifBlank { "on" },
+                    rechargedOn = pkg.str("recharged_on").ifBlank { "-" },
+                    rechargedTime = pkg.str("recharged_time"),
+                    expiration = pkg.str("expiration").ifBlank { "-" },
+                    expirationTime = pkg.str("time"),
+                    method = pkg.str("method").ifBlank { "-" },
+                    price = pkg.doubleVal("price"),
+                    rateLabel = pkg.str("rate_label").ifBlank { "-" },
+                    validityLabel = pkg.str("validity_label").ifBlank { "-" },
+                    customFields = customFields,
+                    recentTransactions = recentTrx
+                )
+                ApiResult.Success(data = detail, message = res.message)
+            }
+        }
+    }
+
+    override suspend fun kickActiveUser(
+        router: String,
+        service: String,
+        rosId: String,
+        username: String
+    ): ApiResult<String> {
+        val fields = buildMap {
+            put("router", router)
+            put("service", service)
+            if (rosId.isNotBlank()) put("ros_id", rosId)
+            put("username", username)
+        }
+        return when (val res = networkGateway.postForm(action = "admin_kick_user", fields = fields)) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(data = res.message, message = res.message)
+        }
+    }
+
+    override suspend fun syncCustomerToRouter(customerId: Int): ApiResult<String> {
+        return when (
+            val res = networkGateway.postForm(
+                action = "admin_customer_sync",
+                fields = mapOf("id" to customerId.toString())
+            )
+        ) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(data = res.message, message = res.message)
+        }
+    }
+
+    override suspend fun editActiveService(
+        rechargeId: Int,
+        planId: Int,
+        expiration: String,
+        time: String
+    ): ApiResult<String> {
+        val fields = mapOf(
+            "id" to rechargeId.toString(),
+            "id_plan" to planId.toString(),
+            "expiration" to expiration.trim(),
+            "time" to time.trim().ifBlank { "23:59:59" }
+        )
+        return when (val res = networkGateway.postForm(action = "admin_prepaid_edit", fields = fields)) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(data = res.message, message = res.message)
         }
     }
 
@@ -428,28 +600,33 @@ class RemoteServiceVoucherRepository(
 
     private fun JsonObject?.str(key: String): String {
         if (this == null || !has(key) || get(key).isJsonNull) return ""
-        return try {
-            get(key).asString.trim()
-        } catch (_: Exception) {
-            ""
-        }
+        return runCatching { get(key).asString.trim() }.getOrDefault("")
     }
 
     private fun JsonObject?.intVal(key: String): Int {
         if (this == null || !has(key) || get(key).isJsonNull) return 0
-        return try {
-            get(key).asInt
-        } catch (_: Exception) {
-            get(key).asString.toIntOrNull() ?: 0
-        }
+        return runCatching { get(key).asInt }.getOrElse { str(key).toIntOrNull() ?: 0 }
+    }
+
+    private fun JsonObject?.longVal(key: String): Long {
+        if (this == null || !has(key) || get(key).isJsonNull) return 0L
+        return runCatching { get(key).asLong }.getOrElse { str(key).toLongOrNull() ?: 0L }
     }
 
     private fun JsonObject?.doubleVal(key: String): Double {
         if (this == null || !has(key) || get(key).isJsonNull) return 0.0
-        return try {
-            get(key).asDouble
-        } catch (_: Exception) {
-            get(key).asString.toDoubleOrNull() ?: 0.0
-        }
+        return runCatching { get(key).asDouble }.getOrElse { str(key).toDoubleOrNull() ?: 0.0 }
+    }
+
+    private fun JsonObject?.boolVal(key: String): Boolean {
+        if (this == null || !has(key) || get(key).isJsonNull) return false
+        return runCatching {
+            val el = get(key)
+            if (el.isJsonPrimitive && el.asJsonPrimitive.isBoolean) el.asBoolean
+            else {
+                val s = el.asString.trim().lowercase()
+                s == "1" || s == "true" || s == "yes"
+            }
+        }.getOrDefault(false)
     }
 }
