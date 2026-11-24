@@ -67,6 +67,7 @@ import com.phpnuxbill.mobile.feature.portal.ui.CustomerPortalViewModel
 import com.phpnuxbill.mobile.feature.services.model.PrepaidServiceItem
 import com.phpnuxbill.mobile.feature.services.model.ServiceVoucherLabels
 import com.phpnuxbill.mobile.feature.services.ui.ActiveCustomerDetailScreen
+import com.phpnuxbill.mobile.feature.services.ui.ReceiptPreviewScreen
 import com.phpnuxbill.mobile.feature.services.ui.ServiceVoucherViewModel
 import com.phpnuxbill.mobile.feature.services.ui.ServicesScreen
 import com.phpnuxbill.mobile.feature.services.ui.VouchersScreen
@@ -155,6 +156,11 @@ private fun AuthenticatedAdminShell(
             container.bluetoothPrinterHelper
         )
     )
+    val customerVm: CustomerViewModel = viewModel(
+        key = "cust_$sessionKey",
+        factory = CustomerViewModel.Factory(container.customerRepository, container.sessionStorage)
+    )
+    val activeReceipt by serviceVm.activeReceipt.collectAsStateWithLifecycle()
 
     val dashUiState by dashboardVm.uiState.collectAsStateWithLifecycle()
     val isChangingPassword by dashboardVm.isChangingPassword.collectAsStateWithLifecycle()
@@ -192,6 +198,17 @@ private fun AuthenticatedAdminShell(
         return
     }
 
+    // Layar Struk Transaksi Resmi (berlaku seragam untuk Quick Add Customer, Recharge, Deposit & Refill)
+    if (activeReceipt != null) {
+        ReceiptPreviewScreen(
+            receipt = activeReceipt!!,
+            companyName = session.effectiveCompanyName,
+            viewModel = serviceVm,
+            onClose = serviceVm::closeReceipt
+        )
+        return
+    }
+    
     // Overlay Layar Penuh Detail & Live Speed untuk User Online yang diklik dari Tab User Online MikroTik
     if (showMikrotikOnlineDetail) {
         val selectedItem by serviceVm.selectedActiveService.collectAsStateWithLifecycle()
@@ -314,6 +331,7 @@ private fun AuthenticatedAdminShell(
             showMikrotikOnlineDetail = false
             serviceVm.closeServiceMode()
             serviceVm.closeActiveCustomerDetail()
+            customerVm.closeCustomerForm()
             currentDestination = target
         }
     }
@@ -351,16 +369,27 @@ private fun AuthenticatedAdminShell(
                     onOpenDrawer = openDrawerFn,
                     onNavigate = navigateSafe,
                     onOpenAccount = { showAccountScreen = true },
+                    onQuickAddCustomer = {
+                        if (AdminRolePolicy.canAddCustomer(effectiveLevel)) {
+                            showAccountScreen = false
+                            showMikrotikOnlineDetail = false
+                            currentDestination = AdminDestination.CUSTOMERS
+                            customerVm.openAddCustomerForm()
+                        }
+                    },
                     onSwitchServerClick = { showLogoutDialog = true },
                     onLogoutClick = { showLogoutDialog = true }
                 )
             }
             AdminDestination.CUSTOMERS -> {
-                val vm: CustomerViewModel = viewModel(
-                    key = "cust_$sessionKey",
-                    factory = CustomerViewModel.Factory(container.customerRepository, container.sessionStorage)
+                CustomerScreen(
+                    viewModel = customerVm,
+                    session = session,
+                    onOpenDrawer = openDrawerFn,
+                    onReceiptCreated = { receipt ->
+                        serviceVm.showReceipt(receipt)
+                    }
                 )
-                CustomerScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
             }
             AdminDestination.SERVICES -> {
                 ServicesScreen(viewModel = serviceVm, session = session, onOpenDrawer = openDrawerFn)
