@@ -11,6 +11,7 @@ import com.phpnuxbill.mobile.feature.customers.model.CustomerCustomField
 import com.phpnuxbill.mobile.feature.customers.model.CustomerFormMetadata
 import com.phpnuxbill.mobile.feature.customers.model.CustomerFormState
 import com.phpnuxbill.mobile.feature.customers.model.CustomerItem
+import com.phpnuxbill.mobile.feature.services.model.InvoiceReceiptData
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -54,6 +55,9 @@ class CustomerViewModel(
     private val _showMapPicker = MutableStateFlow(false)
     val showMapPicker: StateFlow<Boolean> = _showMapPicker.asStateFlow()
 
+    private val _createdReceipt = MutableStateFlow<InvoiceReceiptData?>(null)
+    val createdReceipt: StateFlow<InvoiceReceiptData?> = _createdReceipt.asStateFlow()
+
     init {
         loadCustomers(isPullRefresh = false)
         loadMetadataIfNeeded()
@@ -81,6 +85,10 @@ class CustomerViewModel(
 
     fun clearBannerMessage() {
         _actionBannerMessage.value = null
+    }
+
+    fun clearCreatedReceipt() {
+        _createdReceipt.value = null
     }
 
     fun loadCustomers(isPullRefresh: Boolean = false) {
@@ -207,8 +215,11 @@ class CustomerViewModel(
         val meta = _metadata.value
         _formState.update { current ->
             val autoPlanId = if (!current.isEdit) {
-                meta.plans.firstOrNull { it.type.equals(newType, ignoreCase = true) }?.id
-                    ?: current.selectedPlanId
+                if (newType.equals("Others", ignoreCase = true)) {
+                    meta.plans.firstOrNull()?.id ?: 0
+                } else {
+                    meta.plans.firstOrNull { it.type.equals(newType, ignoreCase = true) }?.id ?: 0
+                }
             } else {
                 current.selectedPlanId
             }
@@ -270,6 +281,9 @@ class CustomerViewModel(
                 is ApiResult.Success -> {
                     _formState.update { it.copy(isSaving = false, isOpen = false) }
                     _actionBannerMessage.value = res.message
+                    if (res.data != null) {
+                        _createdReceipt.value = res.data
+                    }
                     loadCustomers(isPullRefresh = true)
                 }
                 is ApiResult.Error -> {
