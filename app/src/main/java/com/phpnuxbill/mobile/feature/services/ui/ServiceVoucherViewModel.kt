@@ -10,10 +10,13 @@ import com.phpnuxbill.mobile.core.printer.BluetoothPrinterHelper
 import com.phpnuxbill.mobile.core.printer.PairedPrinterDevice
 import com.phpnuxbill.mobile.core.printer.PrintResult
 import com.phpnuxbill.mobile.feature.services.data.ServiceVoucherRepository
+import com.phpnuxbill.mobile.feature.services.model.ActiveCustomerDetailData
 import com.phpnuxbill.mobile.feature.services.model.ActiveServiceSheetMode
 import com.phpnuxbill.mobile.feature.services.model.DepositFormState
+import com.phpnuxbill.mobile.feature.services.model.EditPrepaidFormState
 import com.phpnuxbill.mobile.feature.services.model.GenerateVoucherFormState
 import com.phpnuxbill.mobile.feature.services.model.InvoiceReceiptData
+import com.phpnuxbill.mobile.feature.services.model.LiveSpeedSample
 import com.phpnuxbill.mobile.feature.services.model.PrepaidServiceItem
 import com.phpnuxbill.mobile.feature.services.model.RechargeFormState
 import com.phpnuxbill.mobile.feature.services.model.RefillFormState
@@ -36,7 +39,7 @@ class ServiceVoucherViewModel(
     private val printerHelper: BluetoothPrinterHelper
 ) : ViewModel() {
 
-    // State Layanan Aktif
+    // State Pelanggan Aktif
     private val _servicesState = MutableStateFlow<UiState<List<PrepaidServiceItem>>>(UiState.Loading)
     val servicesState: StateFlow<UiState<List<PrepaidServiceItem>>> = _servicesState.asStateFlow()
 
@@ -45,6 +48,30 @@ class ServiceVoucherViewModel(
 
     private val _serviceStatusFilter = MutableStateFlow("all")
     val serviceStatusFilter: StateFlow<String> = _serviceStatusFilter.asStateFlow()
+
+    private val _serviceTypeFilter = MutableStateFlow("all")
+    val serviceTypeFilter: StateFlow<String> = _serviceTypeFilter.asStateFlow()
+
+    // State Layar Penuh Detail Pelanggan Aktif & Live Speed MikroTik
+    private val _selectedActiveService = MutableStateFlow<PrepaidServiceItem?>(null)
+    val selectedActiveService: StateFlow<PrepaidServiceItem?> = _selectedActiveService.asStateFlow()
+
+    private val _activeDetailState = MutableStateFlow<UiState<ActiveCustomerDetailData>>(UiState.Idle)
+    val activeDetailState: StateFlow<UiState<ActiveCustomerDetailData>> = _activeDetailState.asStateFlow()
+
+    private val _speedHistory = MutableStateFlow<List<LiveSpeedSample>>(emptyList())
+    val speedHistory: StateFlow<List<LiveSpeedSample>> = _speedHistory.asStateFlow()
+
+    private val _isLivePollingEnabled = MutableStateFlow(true)
+    val isLivePollingEnabled: StateFlow<Boolean> = _isLivePollingEnabled.asStateFlow()
+
+    private val _isDetailActionRunning = MutableStateFlow(false)
+    val isDetailActionRunning: StateFlow<Boolean> = _isDetailActionRunning.asStateFlow()
+
+    private var isLivePollInFlight = false
+
+    private val _editPrepaidForm = MutableStateFlow(EditPrepaidFormState())
+    val editPrepaidForm: StateFlow<EditPrepaidFormState> = _editPrepaidForm.asStateFlow()
 
     // State Voucher
     private val _vouchersState = MutableStateFlow<UiState<List<VoucherItem>>>(UiState.Loading)
@@ -133,7 +160,7 @@ class ServiceVoucherViewModel(
     }
 
     // =========================================================================
-    // LAYANAN AKTIF, RECHARGE, DEPOSIT & EXTEND
+    // PELANGGAN AKTIF & DETAIL LIVE MIKROTIK
     // =========================================================================
 
     fun onServiceSearchChanged(q: String) {
@@ -143,6 +170,10 @@ class ServiceVoucherViewModel(
     fun onServiceStatusFilterChanged(status: String) {
         _serviceStatusFilter.value = status
         loadPrepaidServices()
+    }
+
+    fun onServiceTypeFilterChanged(type: String) {
+        _serviceTypeFilter.value = type
     }
 
     fun loadPrepaidServices(isPullRefresh: Boolean = false) {
@@ -166,14 +197,162 @@ class ServiceVoucherViewModel(
         }
     }
 
+    fun openActiveCustomerDetail(item: PrepaidServiceItem) {
+        _selectedActiveService.value = item
+        _speedHistory.value = emptyList()
+        _isLivePollingEnabled.value = true
+        _activeDetailState.value = UiState.Loading
+        fetchActiveCustomerDetail(item, silent = false)
+    }
+
+    fun closeActiveCustomerDetail() {
+        _selectedActiveService.value = null
+        _activeDetailState.value = UiState.Idle
+        _speedHistory.value = emptyList()
+    }
+
+    fun toggleLivePolling() {
+        _isLivePollingEnabled.value = !_isLivePollingEnabled.value
+    }
+
+    fun pollActiveCustomerLiveDetail(silent: Boolean = true) {
+        val target = _selectedActiveService.value ?: return
+        fetchActiveCustomerDetail(target, silent = silent)
+    }
+
+    private fun fetchActiveCustomerDetail(item: PrepaidServiceItem, silent: Boolean) {
+        if (isLivePollInFlight) return
+        viewModelScope.launch {
+            isLivePollInFlight = true
+            if (!silent && _activeDetailState.value !is UiState.Success) {
+                _activeDetailState.value = UiState.Loading
+            }
+            try {
+                when (
+                    val res = repository.getActiveCustomerLiveDetail(
+                        username = item.username,
+                        customerId = item.customerId,
+                        router = item.routers,
+                        service = item.type
+                    )
+                ) {
+                    is ApiResult.Success -> {
+                        val detail = res.data
+                        _activeDetailState.value = UiState.Success(detail)
+                        val sample = LiveSpeedSample(
+                            downloadKbps = detail.downloadKbps.toFloat().coerceAtLeast(0f),
+                            uploadKbps = detail.uploadKbps.toFloat().coerceAtLeast(0f)
+                        )
+                        _speedHistory.update { prev -> (prev + sample).takeLast(20) }
+                    }
+                    is ApiResult.Error -> {
+                        if (res.isUnauthorized) sessionStorage.clearActiveToken()
+                        else if (!silent || _activeDetailState.value !is UiState.Success) {
+                            _activeDetailState.value = UiState.Error(res.message)
+                        }
+                    }
+                }
+            } finally {
+                isLivePollInFlight = false
+            }
+        }
+    }
+
+    fun kickSelectedActiveUser() {
+        val detail = (_activeDetailState.value as? UiState.Success)?.data ?: return
+        if (_isDetailActionRunning.value) return
+        viewModelScope.launch {
+            _isDetailActionRunning.value = true
+            when (
+                val res = repository.kickActiveUser(
+                    router = detail.router,
+                    service = detail.service,
+                    rosId = detail.rosId,
+                    username = detail.username
+                )
+            ) {
+                is ApiResult.Success -> {
+                    _bannerMessage.value = res.message
+                    pollActiveCustomerLiveDetail(silent = true)
+                }
+                is ApiResult.Error -> _bannerMessage.value = res.message
+            }
+            _isDetailActionRunning.value = false
+        }
+    }
+
+    fun syncSelectedCustomerToRouter() {
+        val cid = (_activeDetailState.value as? UiState.Success)?.data?.customerId
+            ?: _selectedActiveService.value?.customerId
+            ?: return
+        if (cid <= 0 || _isDetailActionRunning.value) return
+        viewModelScope.launch {
+            _isDetailActionRunning.value = true
+            when (val res = repository.syncCustomerToRouter(cid)) {
+                is ApiResult.Success -> {
+                    _bannerMessage.value = res.message
+                    pollActiveCustomerLiveDetail(silent = true)
+                }
+                is ApiResult.Error -> _bannerMessage.value = res.message
+            }
+            _isDetailActionRunning.value = false
+        }
+    }
+
+    fun openEditPrepaidForm(detail: ActiveCustomerDetailData) {
+        loadMetadata()
+        _editPrepaidForm.value = EditPrepaidFormState(
+            isOpen = true,
+            rechargeId = detail.packageId,
+            username = detail.username,
+            planId = detail.planId,
+            expiration = detail.expiration,
+            time = detail.expirationTime.ifBlank { "23:59:59" }
+        )
+    }
+
+    fun updateEditPrepaidForm(block: (EditPrepaidFormState) -> EditPrepaidFormState) {
+        _editPrepaidForm.update { block(it).copy(error = null) }
+    }
+
+    fun closeEditPrepaidForm() {
+        _editPrepaidForm.update { it.copy(isOpen = false, error = null) }
+    }
+
+    fun submitEditPrepaidForm() {
+        val f = _editPrepaidForm.value
+        if (f.isSubmitting || f.rechargeId <= 0 || f.planId <= 0) return
+        viewModelScope.launch {
+            _editPrepaidForm.update { it.copy(isSubmitting = true, error = null) }
+            when (
+                val res = repository.editActiveService(
+                    rechargeId = f.rechargeId,
+                    planId = f.planId,
+                    expiration = f.expiration,
+                    time = f.time
+                )
+            ) {
+                is ApiResult.Success -> {
+                    _editPrepaidForm.update { it.copy(isSubmitting = false, isOpen = false) }
+                    _bannerMessage.value = res.message
+                    loadPrepaidServices(isPullRefresh = true)
+                    pollActiveCustomerLiveDetail(silent = true)
+                }
+                is ApiResult.Error -> {
+                    _editPrepaidForm.update { it.copy(isSubmitting = false, error = res.message) }
+                }
+            }
+        }
+    }
+
     fun openRechargeForm(prefillCustomerId: Int = 0, prefillPlanId: Int = 0) {
         loadMetadata()
         val meta = _metadata.value
         val cust = meta.customers.find { it.id == prefillCustomerId } ?: meta.customers.firstOrNull()
         val plan = meta.internetPlans.find { it.id == prefillPlanId } ?: meta.internetPlans.firstOrNull()
         _rechargeForm.value = RechargeFormState(
-            customerId = cust?.id ?: 0,
-            planId = plan?.id ?: 0,
+            customerId = cust?.id ?: prefillCustomerId,
+            planId = plan?.id ?: prefillPlanId,
             usingMethod = meta.paymentUsings.firstOrNull() ?: "Cash"
         )
         _activeServiceMode.value = ActiveServiceSheetMode.RECHARGE_PLAN
@@ -184,7 +363,7 @@ class ServiceVoucherViewModel(
         val meta = _metadata.value
         val cust = meta.customers.find { it.id == prefillCustomerId } ?: meta.customers.firstOrNull()
         _depositForm.value = DepositFormState(
-            customerId = cust?.id ?: 0,
+            customerId = cust?.id ?: prefillCustomerId,
             planId = meta.balancePlans.firstOrNull()?.id ?: 0
         )
         _activeServiceMode.value = ActiveServiceSheetMode.DEPOSIT_BALANCE
@@ -230,6 +409,7 @@ class ServiceVoucherViewModel(
                         _activeReceipt.value = res.data
                     }
                     loadPrepaidServices(isPullRefresh = true)
+                    pollActiveCustomerLiveDetail(silent = true)
                 }
                 is ApiResult.Error -> {
                     _rechargeForm.update { it.copy(isSubmitting = false, error = res.message) }
@@ -252,6 +432,7 @@ class ServiceVoucherViewModel(
                         _activeReceipt.value = res.data
                     }
                     loadMetadata(force = true)
+                    pollActiveCustomerLiveDetail(silent = true)
                 }
                 is ApiResult.Error -> {
                     _depositForm.update { it.copy(isSubmitting = false, error = res.message) }
@@ -267,6 +448,7 @@ class ServiceVoucherViewModel(
                 is ApiResult.Success -> {
                     _bannerMessage.value = res.message
                     loadPrepaidServices(isPullRefresh = true)
+                    pollActiveCustomerLiveDetail(silent = true)
                 }
                 is ApiResult.Error -> {
                     _isRefreshing.value = false
@@ -276,12 +458,13 @@ class ServiceVoucherViewModel(
         }
     }
 
-    fun deleteService(rechargeId: Int) {
+    fun deleteService(rechargeId: Int, closeDetailOnDone: Boolean = false) {
         viewModelScope.launch {
             _isRefreshing.value = true
             when (val res = repository.deleteService(rechargeId)) {
                 is ApiResult.Success -> {
                     _bannerMessage.value = res.message
+                    if (closeDetailOnDone) closeActiveCustomerDetail()
                     loadPrepaidServices(isPullRefresh = true)
                 }
                 is ApiResult.Error -> {
