@@ -398,61 +398,174 @@ class RemoteOperationsRepository(
         }
     }
 
-    override suspend fun getNetworkMapData(): ApiResult<NetworkMapData> {
+override suspend fun getNetworkMapData(): ApiResult<NetworkMapData> {
         return when (val res = networkGateway.get(action = "admin_map_data")) {
             is ApiResult.Error -> res
             is ApiResult.Success -> {
-                val root = res.data.asObjOrNull()
+                val root = res.data?.asObjOrNull()
                 val points = mutableListOf<MapPointItem>()
-                var rCnt = 0
-                var cCnt = 0
-                var aCnt = 0
 
+                fun haversineMeters(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Int {
+                    val r = 6371000.0
+                    val dLat = Math.toRadians(lat2 - lat1)
+                    val dLng = Math.toRadians(lng2 - lng1)
+                    val a = kotlin.math.sin(dLat / 2) * kotlin.math.sin(dLat / 2) +
+                        kotlin.math.cos(Math.toRadians(lat1)) * kotlin.math.cos(Math.toRadians(lat2)) *
+                        kotlin.math.sin(dLng / 2) * kotlin.math.sin(dLng / 2)
+                    return kotlin.math.round(r * (2 * kotlin.math.atan2(kotlin.math.sqrt(a), kotlin.math.sqrt((1.0 - a).coerceAtLeast(0.0))))).toInt()
+                }
+
+                fun JsonObject.boolField(key: String): Boolean {
+                    if (!has(key) || get(key).isJsonNull) return false
+                    return runCatching {
+                        val el = get(key)
+                        if (el.isJsonPrimitive && el.asJsonPrimitive.isBoolean) el.asBoolean
+                        else {
+                            val s = el.asString.trim().lowercase()
+                            s == "1" || s == "true" || s == "yes"
+                        }
+                    }.getOrDefault(false)
+                }
+
+                // 1. Routers
+                val parsedRouters = mutableListOf<MapPointItem>()
                 root?.getAsJsonArray("routers")?.forEach { el ->
                     val o = el.asObjOrNull() ?: return@forEach
-                    rCnt++
-                    points.add(
-                        MapPointItem(
-                            title = "Router: ${o.str("name")}",
-                            subtitle = "${o.str("ip_address")} (${o.intVal("coverage")}m)",
-                            category = "router",
-                            lat = o.doubleVal("lat"),
-                            lng = o.doubleVal("lng"),
-                            radiusMeters = o.intVal("coverage").let { if (it > 0) it else 350 }
-                        )
+                    val lat = o.doubleVal("lat")
+                    val lng = o.doubleVal("lng")
+                    if (lat == 0.0 && lng == 0.0) return@forEach
+                    val cov = o.intVal("coverage").coerceAtLeast(0)
+                    val covCount = o.intVal("covered_count")
+                    val rItem = MapPointItem(
+                        id = o.intVal("id"),
+                        title = o.str("name").ifBlank { "Router" },
+                        subtitle = "${o.str("ip_address")} • Radius: ${if (cov > 0) "${cov}m" else "Tidak diatur"}",
+                        category = "router",
+                        lat = lat,
+                        lng = lng,
+                        radiusMeters = cov,
+                        coveredCount = covCount,
+                        routerName = o.str("name")
                     )
+                    parsedRouters.add(rItem)
                 }
+
+                // 2. Customers (+ fallback hitung jarak & cakupan di klien bila server belum diunggah)
+                var cCnt = 0
+                var coveredCnt = 0
+                var uncoveredCnt = 0
+                val clientRouterHits = mutableMapOf<Int, Int>()
+
                 root?.getAsJsonArray("customers")?.forEach { el ->
                     val o = el.asObjOrNull() ?: return@forEach
+                    val lat = o.doubleVal("lat")
+                    val lng = o.doubleVal("lng")
+                    if (lat == 0.0 && lng == 0.0) return@forEach
                     cCnt++
+
                     val isOn = o.str("plan_status").equals("on", true)
+                    var isCovered = o.has("is_covered") && o.boolField("is_covered")
+                    var coveredBy = o.str("covered_by")
+                    var nearestRouter = o.str("nearest_router")
+                    var nearestDist = if (o.has("nearest_distance_m")) o.intVal("nearest_distance_m") else -1
+
+                    if (!o.has("is_covered") && parsedRouters.isNotEmpty()) {
+                        val hits = mutableListOf<String>()
+                        parsedRouters.forEach { rt ->
+                            val dist = haversineMeters(lat, lng, rt.lat, rt.lng)
+                            if (nearestDist < 0 || dist < nearestDist) {
+                                nearestDist = dist
+                                nearestRouter = rt.title
+                            }
+                            if (rt.radiusMeters > 0 && dist <= rt.radiusMeters) {
+                                hits.add("${rt.title} ($dist m / radius ${rt.radiusMeters} m)")
+                                clientRouterHits[rt.id] = (clientRouterHits[rt.id] ?: 0) + 1
+                            }
+                        }
+                        isCovered = hits.isNotEmpty()
+                        coveredBy = hits.joinToString(", ")
+                    }
+
+                    if (isCovered) coveredCnt++ else uncoveredCnt++
+
                     points.add(
                         MapPointItem(
-                            title = "${o.str("fullname")} (@${o.str("username")})",
-                            subtitle = "${o.str("plan_name")} (${if (isOn) "ON" else "OFF"}) • ${o.str("address")}",
+                            id = o.intVal("id"),
+                            title = "${o.str("fullname").ifBlank { o.str("username") }} (@${o.str("username")})",
+                            subtitle = "${o.str("plan_name").ifBlank { "Non-Paket" }} (${if (isOn) "ON" else "OFF"}) • ${o.str("address")}",
                             category = if (isOn) "customer_on" else "customer_off",
-                            lat = o.doubleVal("lat"),
-                            lng = o.doubleVal("lng")
+                            lat = lat,
+                            lng = lng,
+                            isCovered = isCovered,
+                            coveredBy = coveredBy,
+                            nearestRouter = nearestRouter,
+                            nearestDistanceM = nearestDist,
+                            routerName = o.str("router_name"),
+                            phone = o.str("phonenumber"),
+                            serviceType = o.str("service_type")
                         )
                     )
                 }
+
+                // Masukkan router di awal list (lengkapi coveredCount dari fallback klien jika perlu)
+                val finalRouters = parsedRouters.map { rt ->
+                    val count = if (rt.coveredCount > 0) rt.coveredCount else (clientRouterHits[rt.id] ?: 0)
+                    rt.copy(coveredCount = count)
+                }
+                points.addAll(0, finalRouters)
+
+                // 3. ODPs (tbl_odps)
+                var odpCnt = 0
+                root?.getAsJsonArray("odps")?.forEach { el ->
+                    val o = el.asObjOrNull() ?: return@forEach
+                    val lat = o.doubleVal("lat")
+                    val lng = o.doubleVal("lng")
+                    if (lat == 0.0 && lng == 0.0) return@forEach
+                    odpCnt++
+                    points.add(
+                        MapPointItem(
+                            id = o.intVal("id"),
+                            title = "ODP: ${o.str("name")}",
+                            subtitle = "Port: ${o.intVal("port_amount")} • Redaman: ${o.str("attenuation")} dB • ${o.str("address")}",
+                            category = "odp",
+                            lat = lat,
+                            lng = lng,
+                            radiusMeters = o.intVal("coverage").coerceAtLeast(0)
+                        )
+                    )
+                }
+
+                // 4. Assets
+                var aCnt = 0
                 root?.getAsJsonArray("assets")?.forEach { el ->
                     val o = el.asObjOrNull() ?: return@forEach
+                    val lat = o.doubleVal("lat")
+                    val lng = o.doubleVal("lng")
+                    if (lat == 0.0 && lng == 0.0) return@forEach
                     aCnt++
                     points.add(
                         MapPointItem(
-                            title = "Asset: ${o.str("name")}",
+                            id = o.intVal("id"),
+                            title = o.str("name").ifBlank { "Asset" },
                             subtitle = "${o.str("category")} • ${o.str("condition")}",
                             category = "asset",
-                            lat = o.doubleVal("lat"),
-                            lng = o.doubleVal("lng")
+                            lat = lat,
+                            lng = lng
                         )
                     )
                 }
 
                 ApiResult.Success(
-                    NetworkMapData(customersCount = cCnt, routersCount = rCnt, assetsCount = aCnt, points = points),
-                    res.message
+                    data = NetworkMapData(
+                        customersCount = cCnt,
+                        routersCount = finalRouters.size,
+                        odpsCount = odpCnt,
+                        assetsCount = aCnt,
+                        coveredCustomersCount = coveredCnt,
+                        uncoveredCustomersCount = uncoveredCnt,
+                        points = points
+                    ),
+                    message = res.message
                 )
             }
         }
