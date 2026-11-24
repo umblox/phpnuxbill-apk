@@ -11,6 +11,7 @@ import com.phpnuxbill.mobile.feature.customers.model.CustomerFormState
 import com.phpnuxbill.mobile.feature.customers.model.CustomerItem
 import com.phpnuxbill.mobile.feature.customers.model.PlanOption
 import com.phpnuxbill.mobile.feature.customers.model.RouterCoordHint
+import com.phpnuxbill.mobile.feature.services.model.InvoiceReceiptData
 
 /**
  * Kontrak Repository Pelanggan (SOLID - Interface Segregation & Dependency Inversion)
@@ -24,7 +25,7 @@ interface CustomerRepository {
 
     suspend fun getFormMetadata(): ApiResult<CustomerFormMetadata>
 
-    suspend fun saveCustomer(form: CustomerFormState): ApiResult<String>
+    suspend fun saveCustomer(form: CustomerFormState): ApiResult<InvoiceReceiptData?>
 
     suspend fun deleteCustomer(customerId: Int): ApiResult<String>
 
@@ -151,6 +152,9 @@ class RemoteCustomerRepository(
                     }
                 }
                 if (usings.isEmpty()) usings.add("Cash")
+                if (usings.none { it.equals("Recharge Zero", ignoreCase = true) }) {
+                    usings.add("Recharge Zero")
+                }
 
                 val routerHints = mutableListOf<RouterCoordHint>()
                 root?.getAsJsonArray("routers")?.forEach { el ->
@@ -185,7 +189,7 @@ class RemoteCustomerRepository(
         }
     }
 
-    override suspend fun saveCustomer(form: CustomerFormState): ApiResult<String> {
+    override suspend fun saveCustomer(form: CustomerFormState): ApiResult<InvoiceReceiptData?> {
         val validFields = form.customFields.filter { it.name.isNotBlank() && it.value.isNotBlank() }
         val payload = buildMap<String, Any> {
             put("id", form.id)
@@ -224,8 +228,36 @@ class RemoteCustomerRepository(
 
         return when (val res = networkGateway.postJson(action = "admin_customer_save", body = payload)) {
             is ApiResult.Error -> res
-            is ApiResult.Success -> ApiResult.Success(data = res.message, message = res.message)
+            is ApiResult.Success -> {
+                val receiptObj = res.data?.asObjOrNull()?.get("receipt")?.asObjOrNull()
+                ApiResult.Success(data = parseReceipt(receiptObj), message = res.message)
+            }
         }
+    }
+
+    private fun parseReceipt(o: JsonObject?): InvoiceReceiptData? {
+        if (o == null) return null
+        return InvoiceReceiptData(
+            trxId = o.intVal("trx_id"),
+            invoice = o.str("invoice").ifBlank { "-" },
+            customerId = o.intVal("customer_id"),
+            username = o.str("username").ifBlank { "-" },
+            fullname = o.str("fullname").ifBlank { o.str("username") },
+            phonenumber = o.str("phonenumber"),
+            planName = o.str("plan_name").ifBlank { "-" },
+            type = o.str("type").ifBlank { "Hotspot" },
+            price = o.doubleVal("price"),
+            priceFormatted = o.str("price_formatted"),
+            method = o.str("method").ifBlank { "Cash" },
+            routers = o.str("routers").ifBlank { "-" },
+            rechargedAt = o.str("recharged_at"),
+            expiration = o.str("expiration"),
+            expirationPretty = o.str("expiration_pretty").ifBlank { o.str("expiration") },
+            balanceAfter = o.doubleVal("balance_after"),
+            balanceFormatted = o.str("balance_formatted"),
+            note = o.str("note"),
+            waWebText = o.str("wa_web_text")
+        )
     }
 
     override suspend fun deleteCustomer(customerId: Int): ApiResult<String> {
