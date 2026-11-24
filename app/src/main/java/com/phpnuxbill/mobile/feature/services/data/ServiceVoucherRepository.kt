@@ -362,6 +362,13 @@ class RemoteServiceVoucherRepository(
         }
 
         if (usings.isEmpty()) usings.add("Cash")
+        if (usings.isEmpty()) usings.add("Cash")
+        if (usings.none { it.equals("Recharge Balance", ignoreCase = true) || it.equals("Balance", ignoreCase = true) }) {
+            usings.add("Recharge Balance")
+        }
+        if (usings.none { it.equals("Recharge Zero", ignoreCase = true) }) {
+            usings.add("Recharge Zero")
+        }
 
         ApiResult.Success(
             data = ServiceVoucherMetadata(
@@ -379,6 +386,7 @@ class RemoteServiceVoucherRepository(
         val fields = buildMap {
             put("customer_id", form.customerId.toString())
             put("plan_id", form.planId.toString())
+            if (form.server.isNotBlank()) put("server", form.server)
             put("using", form.usingMethod.ifBlank { "Cash" })
             if (form.note.isNotBlank()) put("note", form.note.trim())
         }
