@@ -102,7 +102,8 @@ enum class AdminDestination(val route: String) {
     GENIEACS("genieacs"),
     REPORTS("reports"),
     PAYMENT_GATEWAY("payment_gateway"),
-    COUPONS_ASSETS("coupons_assets"),
+    COUPONS("coupons"),
+    ASSETS("assets"),
     MAP("map"),
     MESSAGES("messages"),
     SETTINGS("settings")
