@@ -6,6 +6,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,11 +23,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
@@ -37,9 +37,13 @@ import androidx.compose.material.icons.outlined.PersonOff
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.PowerSettingsNew
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Router
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
@@ -76,6 +80,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -83,7 +88,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -113,7 +117,8 @@ import com.phpnuxbill.mobile.feature.network.model.TrafficSpeedSample
 fun MikrotikMonitorScreen(
     viewModel: NetworkGenieAcsViewModel,
     session: SessionState,
-    onOpenDrawer: () -> Unit
+    onOpenDrawer: () -> Unit,
+    onOpenOnlineUserDetail: (OnlineSessionUser) -> Unit = {}
 ) {
     val selectedTab by viewModel.selectedMikrotikTab.collectAsStateWithLifecycle()
     val routers by viewModel.routers.collectAsStateWithLifecycle()
@@ -132,11 +137,13 @@ fun MikrotikMonitorScreen(
     val bannerMessage by viewModel.bannerMessage.collectAsStateWithLifecycle()
 
     val strings = LocalAppStrings.current
+    val isEn = strings.langCode == "en"
     val labels = remember(strings) { NetworkGenieAcsLabels(strings) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     var showRebootConfirm by remember { mutableStateOf(false) }
     var kickTarget by remember { mutableStateOf<OnlineSessionUser?>(null) }
+    var onlineTypeFilter by remember { mutableStateOf("all") }
 
     DisposableEffect(Unit) {
         if (selectedTab == 0) viewModel.startLivePolling()
@@ -175,20 +182,27 @@ fun MikrotikMonitorScreen(
     if (showRebootConfirm && selectedRouterId > 0) {
         AlertDialog(
             onDismissRequest = { showRebootConfirm = false },
-            title = { Text(strings.rebootRouter) },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
+            shape = RoundedCornerShape(22.dp),
+            title = { Text(strings.rebootRouter, fontWeight = FontWeight.Bold) },
             text = { Text(labels.rebootConfirmMsg) },
             confirmButton = {
-                TextButton(
+                Button(
                     onClick = {
                         showRebootConfirm = false
                         viewModel.rebootSelectedRouter(selectedRouterId)
-                    }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text(strings.confirm, color = MaterialTheme.colorScheme.error)
+                    Text(strings.confirm)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showRebootConfirm = false }) { Text(strings.cancel) }
+                OutlinedButton(onClick = { showRebootConfirm = false }, shape = RoundedCornerShape(12.dp)) {
+                    Text(strings.cancel)
+                }
             }
         )
     }
@@ -197,20 +211,27 @@ fun MikrotikMonitorScreen(
         val target = kickTarget!!
         AlertDialog(
             onDismissRequest = { kickTarget = null },
-            title = { Text("${strings.disconnectUser} (${target.username})") },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
+            shape = RoundedCornerShape(22.dp),
+            title = { Text("${strings.disconnectUser} (@${target.username})", fontWeight = FontWeight.Bold) },
             text = { Text(labels.kickConfirmMsg) },
             confirmButton = {
-                TextButton(
+                Button(
                     onClick = {
                         kickTarget = null
                         viewModel.kickUser(target)
-                    }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text(strings.confirm, color = MaterialTheme.colorScheme.error)
+                    Text(strings.confirm)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { kickTarget = null }) { Text(strings.cancel) }
+                OutlinedButton(onClick = { kickTarget = null }, shape = RoundedCornerShape(12.dp)) {
+                    Text(strings.cancel)
+                }
             }
         )
     }
@@ -283,7 +304,6 @@ fun MikrotikMonitorScreen(
                 .padding(innerPadding)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            // Pemilih Router Aktif (jika lebih dari 1 router)
             if (routers.isNotEmpty()) {
                 LazyRow(
                     modifier = Modifier
@@ -302,7 +322,6 @@ fun MikrotikMonitorScreen(
                 }
             }
 
-            // Tab Navigasi MikroTik
             val tabs = listOf(
                 labels.tabLiveMonitor,
                 labels.tabOnlineUsers,
@@ -335,9 +354,13 @@ fun MikrotikMonitorScreen(
                 1 -> OnlineUsersTabContent(
                     state = onlineUsersState,
                     searchQuery = onlineUserSearch,
+                    typeFilter = onlineTypeFilter,
                     isRefreshing = isRefreshing,
+                    isEn = isEn,
                     onSearchChanged = viewModel::onOnlineUserSearchChanged,
+                    onTypeFilterChanged = { onlineTypeFilter = it },
                     onRefresh = { viewModel.loadOnlineUsers(isPullRefresh = true) },
+                    onOpenDetail = onOpenOnlineUserDetail,
                     onKickUser = { kickTarget = it }
                 )
                 2 -> RoutersAndPoolsTabContent(
@@ -381,7 +404,6 @@ private fun LiveMonitorTabContent(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // 1. Status & Spesifikasi Board MikroTik
                 item {
                     ElevatedCard(
                         modifier = Modifier.fillMaxWidth(),
@@ -445,7 +467,6 @@ private fun LiveMonitorTabContent(
                     }
                 }
 
-                // 2. Pemilih Interface & Grafik Live Speed (Tanpa Skala Minimum Hardcode)
                 item {
                     ElevatedCard(
                         modifier = Modifier.fillMaxWidth(),
@@ -510,7 +531,6 @@ private fun LiveMonitorTabContent(
                     }
                 }
 
-                // 3. Statistik Total Kuota per Interface
                 if (status.interfacesTraffic.isNotEmpty()) {
                     item {
                         Text(
@@ -551,9 +571,6 @@ private fun LiveMonitorTabContent(
     }
 }
 
-/**
- * Grafik kecepatan real-time dengan auto-scaling penuh (tanpa batas minimum hardcode)
- */
 @Composable
 private fun LiveSpeedChartCanvas(
     samples: List<TrafficSpeedSample>,
@@ -580,7 +597,6 @@ private fun LiveSpeedChartCanvas(
             val w = size.width
             val h = size.height
 
-            // Garis bantu horizontal (0%, 50%, 100%)
             for (step in 0..2) {
                 val y = h * (step / 2f)
                 drawLine(
@@ -661,43 +677,113 @@ private fun ResourcePill(
 private fun OnlineUsersTabContent(
     state: UiState<OnlineUsersSummary>,
     searchQuery: String,
+    typeFilter: String,
     isRefreshing: Boolean,
+    isEn: Boolean,
     onSearchChanged: (String) -> Unit,
+    onTypeFilterChanged: (String) -> Unit,
     onRefresh: () -> Unit,
+    onOpenDetail: (OnlineSessionUser) -> Unit,
     onKickUser: (OnlineSessionUser) -> Unit
 ) {
     val strings = LocalAppStrings.current
+    val summaryData = (state as? UiState.Success)?.data
+    val allUsers = summaryData?.users.orEmpty()
+    val hotspotCount = remember(allUsers) { allUsers.count { it.service.equals("Hotspot", true) } }
+    val pppoeCount = remember(allUsers) { allUsers.count { it.service.equals("PPPoE", true) } }
+
     Column(modifier = Modifier.fillMaxSize()) {
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onSearchChanged,
+        // 1. Strip Ringkasan KPI Real-time (Selaras dengan Pelanggan Aktif)
+        if (summaryData != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OnlineSummaryPill(
+                    label = strings.online,
+                    value = "${summaryData.totalOnline}",
+                    accent = BrandTeal500,
+                    modifier = Modifier.weight(1f)
+                )
+                OnlineSummaryPill(
+                    label = "Hotspot",
+                    value = "$hotspotCount",
+                    accent = BrandBlue600,
+                    modifier = Modifier.weight(1f)
+                )
+                OnlineSummaryPill(
+                    label = "PPPoE",
+                    value = "$pppoeCount",
+                    accent = Color(0xFF4F46E5),
+                    modifier = Modifier.weight(1f)
+                )
+                OnlineSummaryPill(
+                    label = "Traffic",
+                    value = summaryData.totalTraffic,
+                    accent = Color(0xFF0369A1),
+                    modifier = Modifier.weight(1.25f)
+                )
+            }
+        }
+
+        // 2. Pencarian + Filter Tipe Koneksi MikroTik (Semua | Hotspot | PPPoE)
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surface)
                 .padding(horizontal = 16.dp, vertical = 8.dp),
-            placeholder = { Text(strings.searchPlaceholder) },
-            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { onSearchChanged("") }) {
-                        Icon(Icons.Outlined.Close, contentDescription = null)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = onSearchChanged,
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text(strings.searchPlaceholder) },
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { onSearchChanged("") }) {
+                            Icon(Icons.Outlined.Close, contentDescription = null)
+                        }
                     }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp)
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    "all" to strings.all,
+                    "Hotspot" to "Hotspot ($hotspotCount)",
+                    "PPPoE" to "PPPoE ($pppoeCount)"
+                ).forEach { (key, label) ->
+                    FilterChip(
+                        selected = typeFilter.equals(key, ignoreCase = true),
+                        onClick = { onTypeFilterChanged(key) },
+                        label = { Text(label) }
+                    )
                 }
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp)
-        )
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
         when (state) {
             is UiState.Idle, is UiState.Loading -> LoadingStateView()
             is UiState.Error -> ErrorStateView(message = state.message, onRetry = onRefresh)
             is UiState.Success -> {
-                val filteredUsers = remember(state.data.users, searchQuery) {
-                    if (searchQuery.isBlank()) state.data.users
-                    else state.data.users.filter {
-                        it.username.contains(searchQuery, ignoreCase = true) ||
-                            it.ipAddress.contains(searchQuery, ignoreCase = true) ||
-                            it.macAddress.contains(searchQuery, ignoreCase = true)
+                val filteredUsers = remember(state.data.users, searchQuery, typeFilter) {
+                    state.data.users.filter { u ->
+                        val typeOk = typeFilter.equals("all", true) || u.service.equals(typeFilter, true)
+                        val queryOk = searchQuery.isBlank() ||
+                            u.username.contains(searchQuery, ignoreCase = true) ||
+                            u.ipAddress.contains(searchQuery, ignoreCase = true) ||
+                            u.macAddress.contains(searchQuery, ignoreCase = true) ||
+                            u.router.contains(searchQuery, ignoreCase = true)
+                        typeOk && queryOk
                     }
                 }
 
@@ -706,64 +792,215 @@ private fun OnlineUsersTabContent(
                     onRefresh = onRefresh,
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        item {
-                            Text(
-                                text = "${strings.onlineUsers}: ${filteredUsers.size} • Total: ${state.data.totalTraffic}",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                    if (filteredUsers.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(strings.noData, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        items(filteredUsers, key = { "${it.router}_${it.service}_${it.rosId}_${it.username}" }) { u ->
-                            ElevatedCard(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(14.dp),
-                                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                text = u.username,
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            StatusBadge(
-                                                text = u.service,
-                                                tone = if (u.service.equals("PPPoE", true)) BadgeTone.SUCCESS else BadgeTone.NEUTRAL
-                                            )
-                                        }
-                                        Text(
-                                            text = "IP: ${u.ipAddress} • MAC: ${u.macAddress}",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Text(
-                                            text = "Up: ${u.uptime} • ${u.total}",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                    IconButton(onClick = { onKickUser(u) }) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.PersonOff,
-                                            contentDescription = strings.disconnectUser,
-                                            tint = MaterialTheme.colorScheme.error
-                                        )
-                                    }
-                                }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(filteredUsers, key = { "${it.router}_${it.service}_${it.rosId}_${it.username}" }) { u ->
+                                OnlineUserRichCard(
+                                    user = u,
+                                    isEn = isEn,
+                                    onOpenDetail = { onOpenDetail(u) },
+                                    onKick = { onKickUser(u) }
+                                )
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OnlineSummaryPill(
+    label: String,
+    value: String,
+    accent: Color,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = accent.copy(alpha = 0.10f),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.24f)),
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 6.dp, horizontal = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.ExtraBold,
+                color = accent,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun OnlineUserRichCard(
+    user: OnlineSessionUser,
+    isEn: Boolean,
+    onOpenDetail: () -> Unit,
+    onKick: () -> Unit
+) {
+    val strings = LocalAppStrings.current
+    val isPppoe = user.service.equals("PPPoE", ignoreCase = true)
+
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onOpenDetail),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isPppoe) Icons.Outlined.Router else Icons.Outlined.Wifi,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = user.username,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "${user.service} • ${user.router.ifBlank { user.server }}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+                StatusBadge(text = "ONLINE", tone = BadgeTone.SUCCESS)
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "IP: ${user.ipAddress} • MAC: ${user.macAddress}",
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Uptime: ${user.uptime}",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "↓ ${user.download} • ↑ ${user.upload} (${user.total})",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Speed,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = if (isEn) "Live Speed & Detail" else "Detail & Live Speed",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                TextButton(
+                    onClick = onKick,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.PersonOff,
+                        contentDescription = strings.disconnectUser,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Kick", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
