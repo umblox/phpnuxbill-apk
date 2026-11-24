@@ -83,6 +83,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.phpnuxbill.mobile.core.auth.AdminLevel
+import com.phpnuxbill.mobile.core.auth.AdminRolePolicy
 import com.phpnuxbill.mobile.core.i18n.LocalAppStrings
 import com.phpnuxbill.mobile.core.model.SessionState
 import com.phpnuxbill.mobile.core.model.UiState
@@ -119,6 +121,11 @@ fun CustomerScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var deleteCandidate by remember { mutableStateOf<CustomerItem?>(null) }
 
+    val adminLevel = remember(session.userType) { AdminLevel.fromUserType(session.userType) }
+    val canAdd = AdminRolePolicy.canAddCustomer(adminLevel)
+    val canEditOrDelete = AdminRolePolicy.canEditOrDeleteCustomer(adminLevel)
+    val canSyncAll = AdminRolePolicy.canSyncAllCustomers(adminLevel)
+
     LaunchedEffect(bannerMessage) {
         val msg = bannerMessage ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(msg)
@@ -134,10 +141,13 @@ fun CustomerScreen(
         )
     }
 
-    if (deleteCandidate != null) {
+    if (deleteCandidate != null && canEditOrDelete) {
         val target = deleteCandidate!!
         AlertDialog(
             onDismissRequest = { deleteCandidate = null },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
+            shape = RoundedCornerShape(22.dp),
             title = { Text("${labels.deleteConfirmTitle} (${target.username})") },
             text = { Text(labels.deleteConfirmMsg) },
             confirmButton = {
@@ -158,8 +168,7 @@ fun CustomerScreen(
         )
     }
 
-    // Jika mode Form Tambah/Edit aktif, tampilkan Form Layar Penuh
-    if (formState.isOpen) {
+    if (formState.isOpen && (if (formState.isEdit) canEditOrDelete else canAdd)) {
         CustomerFullScreenForm(
             form = formState,
             metadata = metadata,
@@ -201,11 +210,13 @@ fun CustomerScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = viewModel::syncAllCustomers) {
-                        Icon(
-                            imageVector = Icons.Outlined.Sync,
-                            contentDescription = labels.syncAllRouters
-                        )
+                    if (canSyncAll) {
+                        IconButton(onClick = viewModel::syncAllCustomers) {
+                            Icon(
+                                imageVector = Icons.Outlined.Sync,
+                                contentDescription = labels.syncAllRouters
+                            )
+                        }
                     }
                     IconButton(onClick = { viewModel.loadCustomers(isPullRefresh = true) }) {
                         Icon(
@@ -221,12 +232,14 @@ fun CustomerScreen(
         },
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = viewModel::openAddCustomerForm,
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
-            ) {
-                Icon(imageVector = Icons.Outlined.Add, contentDescription = strings.addCustomer)
+            if (canAdd) {
+                FloatingActionButton(
+                    onClick = viewModel::openAddCustomerForm,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ) {
+                    Icon(imageVector = Icons.Outlined.Add, contentDescription = strings.addCustomer)
+                }
             }
         }
     ) { innerPadding ->
@@ -236,7 +249,6 @@ fun CustomerScreen(
                 .padding(innerPadding)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            // Bar Pencarian & Filter Jenis Layanan
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -276,15 +288,11 @@ fun CustomerScreen(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             when (val state = listState) {
-                is UiState.Idle, is UiState.Loading -> {
-                    LoadingStateView()
-                }
-                is UiState.Error -> {
-                    ErrorStateView(
-                        message = state.message,
-                        onRetry = { viewModel.loadCustomers(isPullRefresh = false) }
-                    )
-                }
+                is UiState.Idle, is UiState.Loading -> LoadingStateView()
+                is UiState.Error -> ErrorStateView(
+                    message = state.message,
+                    onRetry = { viewModel.loadCustomers(isPullRefresh = false) }
+                )
                 is UiState.Success -> {
                     PullToRefreshBox(
                         isRefreshing = isRefreshing,
@@ -318,6 +326,8 @@ fun CustomerScreen(
                                         customer = customer,
                                         currencyCode = session.currencyCode,
                                         labels = labels,
+                                        canSync = canAdd,
+                                        canEditOrDelete = canEditOrDelete,
                                         onEdit = { viewModel.openEditCustomerForm(customer) },
                                         onSync = { viewModel.syncSingleCustomer(customer.id) },
                                         onDelete = { deleteCandidate = customer }
@@ -337,6 +347,8 @@ private fun CustomerCardItem(
     customer: CustomerItem,
     currencyCode: String,
     labels: CustomerLabels,
+    canSync: Boolean,
+    canEditOrDelete: Boolean,
     onEdit: () -> Unit,
     onSync: () -> Unit,
     onDelete: () -> Unit
@@ -350,7 +362,7 @@ private fun CustomerCardItem(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .clickable(onClick = onEdit),
+            .let { if (canEditOrDelete) it.clickable(onClick = onEdit) else it },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.elevatedCardColors(
             containerColor = MaterialTheme.colorScheme.surface
@@ -438,69 +450,77 @@ private fun CustomerCardItem(
                 )
             }
 
-            HorizontalDivider(
-                modifier = Modifier.padding(vertical = 8.dp),
-                color = MaterialTheme.colorScheme.outlineVariant
-            )
+            val hasActions = customer.phonenumber.isNotBlank() || canSync || canEditOrDelete
+            if (hasActions) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 8.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (customer.phonenumber.isNotBlank()) {
-                    IconButton(
-                        onClick = {
-                            val digits = customer.phonenumber.replace(Regex("[^0-9]"), "")
-                            if (digits.isNotBlank()) {
-                                runCatching {
-                                    context.startActivity(
-                                        Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$digits"))
-                                    )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (customer.phonenumber.isNotBlank()) {
+                        IconButton(
+                            onClick = {
+                                val digits = customer.phonenumber.replace(Regex("[^0-9]"), "")
+                                if (digits.isNotBlank()) {
+                                    val waNum = if (digits.startsWith("0")) "62${digits.drop(1)}" else digits
+                                    runCatching {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$waNum"))
+                                        )
+                                    }
                                 }
-                            }
-                        },
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.Chat,
-                            contentDescription = "WhatsApp",
-                            tint = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.size(18.dp)
-                        )
+                            },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Outlined.Chat,
+                                contentDescription = "WhatsApp",
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
-                }
-                IconButton(
-                    onClick = onSync,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Sync,
-                        contentDescription = labels.syncRouter,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                IconButton(
-                    onClick = onEdit,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Edit,
-                        contentDescription = strings.edit,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Delete,
-                        contentDescription = strings.delete,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    if (canSync) {
+                        IconButton(
+                            onClick = onSync,
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Sync,
+                                contentDescription = labels.syncRouter,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                    if (canEditOrDelete) {
+                        IconButton(
+                            onClick = onEdit,
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Edit,
+                                contentDescription = strings.edit,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = onDelete,
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Delete,
+                                contentDescription = strings.delete,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -596,7 +616,6 @@ private fun CustomerFullScreenForm(
                 }
             }
 
-            // Bagian 1: Informasi Akun & Layanan
             FormSectionCard(title = labels.accountInfoSection) {
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                     val types = listOf("Hotspot", "PPPoE", "Others")
@@ -665,7 +684,6 @@ private fun CustomerFullScreenForm(
                 }
             }
 
-            // Bagian 2: Kredensial PPPoE (Jika PPPoE atau diisi opsional)
             if (form.serviceType.equals("PPPoE", ignoreCase = true) || form.pppoeUsername.isNotBlank()) {
                 FormSectionCard(title = labels.pppoeSection) {
                     OutlinedTextField(
@@ -697,7 +715,6 @@ private fun CustomerFullScreenForm(
                 }
             }
 
-            // Bagian 3: Kontak & Lokasi Pemasangan + Coordinate Picker
             FormSectionCard(title = labels.contactLocationSection) {
                 OutlinedTextField(
                     value = form.phonenumber,
@@ -769,7 +786,6 @@ private fun CustomerFullScreenForm(
                 )
             }
 
-            // Bagian 4: Paket Internet (Wajib saat Tambah Pelanggan, Opsional saat Edit)
             FormSectionCard(
                 title = if (form.isEdit) labels.optionalPlanSection else labels.initialPlanSection
             ) {
@@ -856,7 +872,6 @@ private fun CustomerFullScreenForm(
                 }
             }
 
-            // Bagian 5: Welcome Message (Saat Registrasi Baru)
             if (!form.isEdit) {
                 FormSectionCard(title = labels.welcomeSection) {
                     Row(
@@ -898,7 +913,6 @@ private fun CustomerFullScreenForm(
                 }
             }
 
-            // Bagian 6: Custom Fields (tbl_customers_fields)
             FormSectionCard(title = labels.customFieldsSection) {
                 form.customFields.forEachIndexed { idx, cf ->
                     Row(
