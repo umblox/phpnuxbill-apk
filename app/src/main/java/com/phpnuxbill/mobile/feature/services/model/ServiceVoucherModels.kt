@@ -19,7 +19,91 @@ data class PrepaidServiceItem(
     val routers: String,
     val type: String,
     val price: Double,
-    val invoice: String
+    val invoice: String,
+    val pppoeUsername: String = "",
+    val pppoeIp: String = "",
+    val accountStatus: String = "Active"
+)
+
+data class LiveSpeedSample(
+    val downloadKbps: Float,
+    val uploadKbps: Float
+)
+
+data class ActiveCustomerTrxItem(
+    val id: Int,
+    val invoice: String,
+    val planName: String,
+    val price: Double,
+    val rechargedOn: String,
+    val rechargedTime: String,
+    val expiration: String,
+    val method: String,
+    val routers: String,
+    val type: String
+)
+
+data class ActiveCustomerDetailData(
+    val online: Boolean = false,
+    val rosId: String = "",
+    val activeDevices: Int = 0,
+    val username: String = "",
+    val service: String = "Hotspot",
+    val router: String = "-",
+    val routerId: Int = 0,
+    val server: String = "-",
+    val ipAddress: String = "-",
+    val macAddress: String = "-",
+    val uptime: String = "Offline",
+    val sessionTime: String = "-",
+    val idleTime: String = "-",
+    val loginBy: String = "-",
+    val uploadBytes: String = "0 B",
+    val downloadBytes: String = "0 B",
+    val totalBytes: String = "0 B",
+    val rxBps: Long = 0L,
+    val txBps: Long = 0L,
+    val uploadKbps: Double = 0.0,
+    val downloadKbps: Double = 0.0,
+    val uploadSpeedLabel: String = "0 bps",
+    val downloadSpeedLabel: String = "0 bps",
+    val customerId: Int = 0,
+    val fullname: String = "",
+    val phonenumber: String = "",
+    val address: String = "",
+    val city: String = "",
+    val balance: Double = 0.0,
+    val accountType: String = "Personal",
+    val accountStatus: String = "Active",
+    val autoRenewal: Boolean = false,
+    val pppoeUsername: String = "",
+    val pppoeIp: String = "",
+    val lastLogin: String = "-",
+    val packageId: Int = 0,
+    val planId: Int = 0,
+    val planName: String = "-",
+    val packageStatus: String = "on",
+    val rechargedOn: String = "-",
+    val rechargedTime: String = "",
+    val expiration: String = "-",
+    val expirationTime: String = "",
+    val method: String = "-",
+    val price: Double = 0.0,
+    val rateLabel: String = "-",
+    val validityLabel: String = "-",
+    val customFields: List<Pair<String, String>> = emptyList(),
+    val recentTransactions: List<ActiveCustomerTrxItem> = emptyList()
+)
+
+data class EditPrepaidFormState(
+    val isOpen: Boolean = false,
+    val rechargeId: Int = 0,
+    val username: String = "",
+    val planId: Int = 0,
+    val expiration: String = "",
+    val time: String = "23:59:59",
+    val isSubmitting: Boolean = false,
+    val error: String? = null
 )
 
 data class VoucherItem(
@@ -76,7 +160,7 @@ data class CustomerOption(
 data class ServicePlanOption(
     val id: Int,
     val namePlan: String,
-    val type: String, // Hotspot | PPPOE | VPN | Balance
+    val type: String,
     val price: Double,
     val routers: String,
     val validityLabel: String
@@ -136,7 +220,7 @@ data class GenerateVoucherFormState(
     val planId: Int = 0,
     val server: String = "",
     val count: String = "10",
-    val format: String = "up", // up | low | rand | numbers
+    val format: String = "up",
     val prefix: String = "",
     val batchName: String = "",
     val lengthCode: String = "6",
@@ -147,6 +231,7 @@ data class GenerateVoucherFormState(
 class ServiceVoucherLabels(strings: AppStrings) {
     private val isEn = strings.langCode == "en"
 
+    val activeCustomersTitle = if (isEn) "Active Customers" else "Pelanggan Aktif"
     val tabActiveServices = if (isEn) "Active Services" else "Layanan Aktif"
     val selectCustomer = if (isEn) "Select Customer" else "Pilih Pelanggan"
     val filterCustomerHint = if (isEn) "Filter customer name/username..." else "Cari nama/username pelanggan..."
@@ -159,6 +244,28 @@ class ServiceVoucherLabels(strings: AppStrings) {
     } else {
         "Paket aktif pelanggan akan segera dihapus dari router."
     }
+
+    // Detail MikroTik & Billing Pelanggan Aktif
+    val detailScreenTitle = if (isEn) "Live Service Detail" else "Detail Pelanggan Aktif"
+    val tapForLiveDetail = if (isEn) "Live Speed & Detail" else "Detail & Live Speed"
+    val liveTrafficTitle = if (isEn) "MikroTik Live Speed" else "Live Speed MikroTik"
+    val liveRunning = if (isEn) "LIVE" else "LIVE"
+    val livePaused = if (isEn) "PAUSED" else "JEDA"
+    val mikrotikSessionTitle = if (isEn) "MikroTik Session Data" else "Data Sesi MikroTik"
+    val billingInfoTitle = if (isEn) "Billing & Subscription" else "Data Billing & Langganan"
+    val recentTrxTitle = if (isEn) "Recent Transactions" else "Riwayat Transaksi Terakhir"
+    val customFieldsTitle = if (isEn) "Additional Attributes" else "Atribut Tambahan"
+    val kickSession = if (isEn) "Disconnect (Kick)" else "Putuskan Sesi (Kick)"
+    val kickConfirmTitle = if (isEn) "Disconnect Active Session?" else "Putuskan Sesi MikroTik?"
+    val kickConfirmMsg = if (isEn) {
+        "This user will be disconnected from MikroTik immediately and will need to reconnect."
+    } else {
+        "Sesi aktif pelanggan di MikroTik akan diputus sekarang dan perlu menyambung ulang."
+    }
+    val syncRouter = if (isEn) "Sync Router" else "Sync Router"
+    val editPlanExpiry = if (isEn) "Edit Plan / Expiry" else "Ubah Paket / Exp"
+    val editExpiryLabel = if (isEn) "Expiration Date (YYYY-MM-DD)" else "Tanggal Jatuh Tempo (YYYY-MM-DD)"
+    val editTimeLabel = if (isEn) "Expiration Time (HH:mm:ss)" else "Jam Jatuh Tempo (HH:mm:ss)"
 
     // Voucher
     val unusedStatus = if (isEn) "Available" else "Tersedia"
