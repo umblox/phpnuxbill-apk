@@ -779,7 +779,7 @@ private fun ActiveDetailQuickActionsBar(
     val strings = LocalAppStrings.current
 
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (canRecharge) {
+        if (canRecharge && detail.customerId > 0) {
             item {
                 Button(
                     onClick = onRecharge,
@@ -863,17 +863,19 @@ private fun ActiveDetailQuickActionsBar(
                 }
             }
         }
-        item {
-            OutlinedButton(
-                onClick = onReceipt,
-                shape = RoundedCornerShape(12.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
-            ) {
-                Icon(Icons.AutoMirrored.Outlined.ReceiptLong, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Invoice")
-            }
-        }
+        if (detail.customerId > 0 || detail.packageId > 0) {
+         item {
+             OutlinedButton(
+                 onClick = onReceipt,
+                 shape = RoundedCornerShape(12.dp),
+                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
+             ) {
+                 Icon(Icons.AutoMirrored.Outlined.ReceiptLong, contentDescription = null, modifier = Modifier.size(16.dp))
+                 Spacer(modifier = Modifier.width(6.dp))
+                 Text("Invoice")
+             }
+         }
+     }
         if (detail.phonenumber.isNotBlank()) {
             item {
                 OutlinedButton(
