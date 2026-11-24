@@ -352,6 +352,26 @@ private fun AuthenticatedAdminShell(
                     scope.launch { drawerState.close() }
                     showAccountScreen = true
                 },
+                onShortcutRecharge = {
+                    scope.launch { drawerState.close() }
+                    if (AdminRolePolicy.canRechargeOrDeposit(effectiveLevel)) {
+                        showAccountScreen = false
+                        showMikrotikOnlineDetail = false
+                        customerVm.closeCustomerForm()
+                        currentDestination = AdminDestination.SERVICES
+                        serviceVm.openRechargeForm()
+                    }
+                },
+                onShortcutDeposit = {
+                    scope.launch { drawerState.close() }
+                    if (AdminRolePolicy.canRechargeOrDeposit(effectiveLevel) && featureFlags.enableBalance) {
+                        showAccountScreen = false
+                        showMikrotikOnlineDetail = false
+                        customerVm.closeCustomerForm()
+                        currentDestination = AdminDestination.SERVICES
+                        serviceVm.openDepositForm()
+                    }
+                },
                 onLanguageSelected = onLanguageSelected,
                 onThemeSelected = dashboardVm::setAppThemeMode,
                 onLogoutClick = {
