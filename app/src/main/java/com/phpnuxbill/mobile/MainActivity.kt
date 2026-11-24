@@ -37,6 +37,7 @@ import com.phpnuxbill.mobile.core.i18n.getStringsForLanguage
 import com.phpnuxbill.mobile.core.model.SessionState
 import com.phpnuxbill.mobile.core.model.UiState
 import com.phpnuxbill.mobile.core.model.UserRole
+import com.phpnuxbill.mobile.core.ui.components.AppStartupSplashScreen
 import com.phpnuxbill.mobile.core.ui.theme.PHPNuxBillTheme
 import com.phpnuxbill.mobile.feature.auth.ui.AuthViewModel
 import com.phpnuxbill.mobile.feature.auth.ui.LoginScreen
@@ -87,37 +88,45 @@ class MainActivity : ComponentActivity() {
                     sessionStorage = container.sessionStorage
                 )
             )
-            val session by authViewModel.sessionState.collectAsStateWithLifecycle()
-            val activeLang = AppLanguage.fromCode(session.languageCode)
-            val strings = remember(activeLang) { getStringsForLanguage(activeLang) }
+            val loadedSession by authViewModel.bootstrapSession.collectAsStateWithLifecycle()
 
-            CompositionLocalProvider(LocalAppStrings provides strings) {
-                PHPNuxBillTheme(themeMode = session.themeMode) {
-                    when {
-                        !session.isLoggedIn -> {
-                            LoginScreen(viewModel = authViewModel)
-                        }
-                        session.role == UserRole.CUSTOMER -> {
-                            val portalVm: CustomerPortalViewModel = viewModel(
-                                key = "portal_${session.activeServerUrl}_${session.token}",
-                                factory = CustomerPortalViewModel.Factory(
-                                    repository = container.customerPortalRepository,
-                                    sessionStorage = container.sessionStorage
+            if (loadedSession == null) {
+                PHPNuxBillTheme {
+                    AppStartupSplashScreen()
+                }
+            } else {
+                val session = loadedSession!!
+                val activeLang = AppLanguage.fromCode(session.languageCode)
+                val strings = remember(activeLang) { getStringsForLanguage(activeLang) }
+
+                CompositionLocalProvider(LocalAppStrings provides strings) {
+                    PHPNuxBillTheme(themeMode = session.themeMode) {
+                        when {
+                            !session.isLoggedIn -> {
+                                LoginScreen(viewModel = authViewModel)
+                            }
+                            session.role == UserRole.CUSTOMER -> {
+                                val portalVm: CustomerPortalViewModel = viewModel(
+                                    key = "portal_${session.activeServerUrl}_${session.token}",
+                                    factory = CustomerPortalViewModel.Factory(
+                                        repository = container.customerPortalRepository,
+                                        sessionStorage = container.sessionStorage
+                                    )
                                 )
-                            )
-                            CustomerPortalScreen(
-                                viewModel = portalVm,
-                                session = session,
-                                onLogout = authViewModel::onLogout
-                            )
-                        }
-                        else -> {
-                            AuthenticatedAdminShell(
-                                container = container,
-                                session = session,
-                                onLanguageSelected = authViewModel::onLanguageSelected,
-                                onLogout = authViewModel::onLogout
-                            )
+                                CustomerPortalScreen(
+                                    viewModel = portalVm,
+                                    session = session,
+                                    onLogout = authViewModel::onLogout
+                                )
+                            }
+                            else -> {
+                                AuthenticatedAdminShell(
+                                    container = container,
+                                    session = session,
+                                    onLanguageSelected = authViewModel::onLanguageSelected,
+                                    onLogout = authViewModel::onLogout
+                                )
+                            }
                         }
                     }
                 }
