@@ -190,3 +190,41 @@ data class FriendPlanLookupResult(
     val lastPlan: CustomerBuyPlanItem? = null,
     val eligiblePlans: List<CustomerBuyPlanItem> = emptyList()
 )
+
+data class FriendActionResult(
+    val message: String,
+    val invoice: String = "",
+    val friendPhone: String = ""
+)
+
+enum class CustomerReceiptKind {
+    PLAN_PURCHASE,
+    BALANCE_TOPUP,
+    VOUCHER_REDEEM,
+    TRANSFER_BALANCE,
+    SEND_PLAN_FRIEND
+}
+
+data class CustomerTransactionReceipt(
+    val kind: CustomerReceiptKind,
+    val title: String,
+    val subtitle: String = "",
+    val invoiceRef: String = "",
+    val timestamp: String,
+    val companyName: String,
+    val senderName: String,
+    val senderUsername: String,
+    val recipientName: String = "",
+    val recipientUsername: String = "",
+    val recipientPhone: String = "",
+    val itemLabel: String,
+    val amountFormatted: String = "",
+    val paymentMethod: String = "",
+    val balanceBeforeFormatted: String = "",
+    val balanceAfterFormatted: String = "",
+    val extraNote: String = "",
+    val shareText: String
+) {
+    val isFriendTransaction: Boolean
+        get() = kind == CustomerReceiptKind.TRANSFER_BALANCE || kind == CustomerReceiptKind.SEND_PLAN_FRIEND
+}
