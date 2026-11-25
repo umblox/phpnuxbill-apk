@@ -63,6 +63,7 @@ import com.phpnuxbill.mobile.core.i18n.AppLanguage
 import com.phpnuxbill.mobile.core.i18n.LocalAppStrings
 import com.phpnuxbill.mobile.core.model.AppThemeMode
 import com.phpnuxbill.mobile.core.model.SessionState
+import com.phpnuxbill.mobile.core.ui.components.AppFloatingSnackbarHost
 import com.phpnuxbill.mobile.core.ui.components.AppScreenScaffold
 import com.phpnuxbill.mobile.core.ui.components.LanguageToggleChip
 import com.phpnuxbill.mobile.core.ui.theme.BrandBlue600
@@ -132,7 +133,8 @@ fun AdminAccountScreen(
     AppScreenScaffold(
         title = if (isEn) "My Account" else "Akun Saya",
         subtitle = "@${session.username} • ${level.displayLabel(isEn)}",
-        onBack = onBack
+        onBack = onBack,
+        snackbarHost = { AppFloatingSnackbarHost(hostState = snackbarHostState) }
     ) { innerPadding ->
         Box(
             modifier = Modifier
@@ -406,11 +408,6 @@ fun AdminAccountScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
             }
-
-            SnackbarHost(
-                hostState = snackbarHostState,
-                modifier = Modifier.align(Alignment.BottomCenter)
-            )
         }
     }
 }
