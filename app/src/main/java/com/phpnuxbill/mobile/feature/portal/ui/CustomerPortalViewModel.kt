@@ -7,6 +7,7 @@ import com.phpnuxbill.mobile.core.datastore.SessionStorage
 import com.phpnuxbill.mobile.core.model.ApiResult
 import com.phpnuxbill.mobile.core.model.AppThemeMode
 import com.phpnuxbill.mobile.core.model.UiState
+import com.phpnuxbill.mobile.feature.dashboard.ui.formatMoney
 import com.phpnuxbill.mobile.feature.portal.data.CustomerPortalRepository
 import com.phpnuxbill.mobile.feature.portal.model.CustomerBillItem
 import com.phpnuxbill.mobile.feature.portal.model.CustomerBuyPlanItem
@@ -15,13 +16,18 @@ import com.phpnuxbill.mobile.feature.portal.model.CustomerModemStatusResult
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPackageItem
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPlansData
 import com.phpnuxbill.mobile.feature.portal.model.CustomerPortalDashboard
+import com.phpnuxbill.mobile.feature.portal.model.CustomerReceiptKind
 import com.phpnuxbill.mobile.feature.portal.model.CustomerTransactionItem
+import com.phpnuxbill.mobile.feature.portal.model.CustomerTransactionReceipt
 import com.phpnuxbill.mobile.feature.portal.model.FriendPlanLookupResult
 import com.phpnuxbill.mobile.feature.portal.model.PortalPaymentGateway
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class CustomerPortalViewModel(
     private val repository: CustomerPortalRepository,
@@ -77,6 +83,9 @@ class CustomerPortalViewModel(
     private val _friendLookupState = MutableStateFlow<UiState<FriendPlanLookupResult>>(UiState.Idle)
     val friendLookupState: StateFlow<UiState<FriendPlanLookupResult>> = _friendLookupState.asStateFlow()
 
+    private val _successReceipt = MutableStateFlow<CustomerTransactionReceipt?>(null)
+    val successReceipt: StateFlow<CustomerTransactionReceipt?> = _successReceipt.asStateFlow()
+
     init {
         loadDashboard()
     }
@@ -84,6 +93,13 @@ class CustomerPortalViewModel(
     fun clearBanner() {
         _bannerMessage.value = null
     }
+
+    fun clearSuccessReceipt() {
+        _successReceipt.value = null
+    }
+
+    private fun currentFormattedTimestamp(): String =
+        SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date())
 
     fun onVoucherCodeChanged(v: String) {
         _voucherCodeInput.value = v
@@ -226,14 +242,62 @@ class CustomerPortalViewModel(
         }
     }
 
-    fun transferBalance(username: String, amount: Double, onSuccess: () -> Unit) {
+    fun transferBalance(
+        friend: FriendPlanLookupResult,
+        amount: Double,
+        onSuccess: () -> Unit
+    ) {
         if (_isSubmitting.value) return
+        val dash = (_dashboardState.value as? UiState.Success)?.data
+        val currency = dash?.currency ?: "Rp."
+        val balBefore = dash?.balance ?: 0.0
+        val balAfter = (balBefore - amount).coerceAtLeast(0.0)
+        val company = dash?.companyName?.ifBlank { "PHPNuxBill" } ?: "PHPNuxBill"
+        val senderName = dash?.fullname?.ifBlank { dash.username } ?: "-"
+        val senderUser = dash?.username ?: "-"
+
         viewModelScope.launch {
             _isSubmitting.value = true
-            when (val res = repository.transferBalance(username, amount)) {
+            when (val res = repository.transferBalance(friend.username, amount)) {
                 is ApiResult.Success -> {
                     _isSubmitting.value = false
-                    _bannerMessage.value = res.message
+                    val nowStr = currentFormattedTimestamp()
+                    val amtFmt = formatMoney(currency, amount)
+                    val beforeFmt = formatMoney(currency, balBefore)
+                    val afterFmt = formatMoney(currency, balAfter)
+                    val invRef = res.data.invoice
+                    val shareText = buildString {
+                        appendLine("*$company — Bukti Transfer Saldo*")
+                        appendLine("=========================")
+                        if (invRef.isNotBlank()) appendLine("Ref        : $invRef")
+                        appendLine("Tanggal    : $nowStr")
+                        appendLine("Pengirim   : $senderName (@$senderUser)")
+                        appendLine("Penerima   : ${friend.fullname} (@${friend.username})")
+                        appendLine("Nominal    : *$amtFmt*")
+                        appendLine("Status     : BERHASIL")
+                        appendLine("=========================")
+                    }.trim()
+
+                    _successReceipt.value = CustomerTransactionReceipt(
+                        kind = CustomerReceiptKind.TRANSFER_BALANCE,
+                        title = "Transfer Saldo Berhasil",
+                        subtitle = "Saldo telah diteruskan ke akun ${friend.fullname}",
+                        invoiceRef = invRef,
+                        timestamp = nowStr,
+                        companyName = company,
+                        senderName = senderName,
+                        senderUsername = senderUser,
+                        recipientName = friend.fullname,
+                        recipientUsername = friend.username,
+                        recipientPhone = res.data.friendPhone,
+                        itemLabel = "Transfer Saldo",
+                        amountFormatted = amtFmt,
+                        paymentMethod = "Saldo Akun",
+                        balanceBeforeFormatted = beforeFmt,
+                        balanceAfterFormatted = afterFmt,
+                        extraNote = res.message,
+                        shareText = shareText
+                    )
                     loadDashboard(isPullRefresh = true)
                     loadTransactions(isPullRefresh = true)
                     onSuccess()
@@ -247,29 +311,79 @@ class CustomerPortalViewModel(
     }
 
     fun resetFriendLookup() {
-    _friendLookupState.value = UiState.Idle
-}
+        _friendLookupState.value = UiState.Idle
+    }
 
-fun lookupFriend(username: String) {
-    val clean = username.trim()
-    if (clean.isBlank()) return
-    viewModelScope.launch {
-        _friendLookupState.value = UiState.Loading
-        when (val res = repository.lookupFriendForPlan(clean)) {
-            is ApiResult.Success -> _friendLookupState.value = UiState.Success(res.data)
-            is ApiResult.Error -> _friendLookupState.value = UiState.Error(res.message)
+    fun lookupFriend(username: String) {
+        val clean = username.trim()
+        if (clean.isBlank()) return
+        viewModelScope.launch {
+            _friendLookupState.value = UiState.Loading
+            when (val res = repository.lookupFriendForPlan(clean)) {
+                is ApiResult.Success -> _friendLookupState.value = UiState.Success(res.data)
+                is ApiResult.Error -> _friendLookupState.value = UiState.Error(res.message)
+            }
         }
     }
-}
 
-    fun sendPlanToFriend(username: String, planId: Int, onSuccess: () -> Unit) {
+    fun sendPlanToFriend(
+        friend: FriendPlanLookupResult,
+        plan: CustomerBuyPlanItem,
+        onSuccess: () -> Unit
+    ) {
         if (_isSubmitting.value) return
+        val dash = (_dashboardState.value as? UiState.Success)?.data
+        val currency = dash?.currency ?: "Rp."
+        val balBefore = dash?.balance ?: 0.0
+        val balAfter = (balBefore - plan.price).coerceAtLeast(0.0)
+        val company = dash?.companyName?.ifBlank { "PHPNuxBill" } ?: "PHPNuxBill"
+        val senderName = dash?.fullname?.ifBlank { dash.username } ?: "-"
+        val senderUser = dash?.username ?: "-"
+
         viewModelScope.launch {
             _isSubmitting.value = true
-            when (val res = repository.sendPlanToFriend(username, planId)) {
+            when (val res = repository.sendPlanToFriend(friend.username, plan.id)) {
                 is ApiResult.Success -> {
                     _isSubmitting.value = false
-                    _bannerMessage.value = res.message
+                    val nowStr = currentFormattedTimestamp()
+                    val amtFmt = formatMoney(currency, plan.price)
+                    val beforeFmt = formatMoney(currency, balBefore)
+                    val afterFmt = formatMoney(currency, balAfter)
+                    val invRef = res.data.invoice
+                    val itemDetail = listOf(plan.namePlan, plan.validity).filter { it.isNotBlank() }.joinToString(" • ")
+                    val shareText = buildString {
+                        appendLine("*$company — Bukti Beli Paket Teman*")
+                        appendLine("=========================")
+                        if (invRef.isNotBlank()) appendLine("Invoice    : $invRef")
+                        appendLine("Tanggal    : $nowStr")
+                        appendLine("Pengirim   : $senderName (@$senderUser)")
+                        appendLine("Penerima   : ${friend.fullname} (@${friend.username})")
+                        appendLine("Paket      : *$itemDetail*")
+                        appendLine("Harga      : $amtFmt")
+                        appendLine("Status     : AKTIF / BERHASIL")
+                        appendLine("=========================")
+                    }.trim()
+
+                    _successReceipt.value = CustomerTransactionReceipt(
+                        kind = CustomerReceiptKind.SEND_PLAN_FRIEND,
+                        title = "Paket Teman Aktif!",
+                        subtitle = "${plan.namePlan} berhasil diaktifkan untuk ${friend.fullname}",
+                        invoiceRef = invRef,
+                        timestamp = nowStr,
+                        companyName = company,
+                        senderName = senderName,
+                        senderUsername = senderUser,
+                        recipientName = friend.fullname,
+                        recipientUsername = friend.username,
+                        recipientPhone = res.data.friendPhone,
+                        itemLabel = itemDetail,
+                        amountFormatted = amtFmt,
+                        paymentMethod = "Saldo Akun",
+                        balanceBeforeFormatted = beforeFmt,
+                        balanceAfterFormatted = afterFmt,
+                        extraNote = res.message,
+                        shareText = shareText
+                    )
                     loadDashboard(isPullRefresh = true)
                     loadTransactions(isPullRefresh = true)
                     onSuccess()
@@ -468,6 +582,8 @@ fun lookupFriend(username: String) {
     fun confirmCheckoutOrder(onBalancePaidSuccess: () -> Unit) {
         val plan = _checkoutPlan.value ?: return
         if (_isSubmitting.value || _selectedGatewayId.value.isBlank()) return
+        val dash = (_dashboardState.value as? UiState.Success)?.data
+
         viewModelScope.launch {
             _isSubmitting.value = true
             when (
@@ -486,7 +602,41 @@ fun lookupFriend(username: String) {
                         _activePaymentBill.value = createdBill
                         loadDashboard(isPullRefresh = true)
                     } else {
-                        _bannerMessage.value = res.message
+                        val currency = dash?.currency ?: "Rp."
+                        val balBefore = dash?.balance ?: 0.0
+                        val balAfter = (balBefore - plan.price).coerceAtLeast(0.0)
+                        val company = dash?.companyName?.ifBlank { "PHPNuxBill" } ?: "PHPNuxBill"
+                        val nowStr = currentFormattedTimestamp()
+                        val amtFmt = formatMoney(currency, plan.price)
+                        val itemDetail = listOf(plan.namePlan, plan.validity).filter { it.isNotBlank() }.joinToString(" • ")
+                        val shareText = buildString {
+                            appendLine("*$company — Bukti Pembelian Paket*")
+                            appendLine("=========================")
+                            appendLine("Tanggal    : $nowStr")
+                            appendLine("Pelanggan  : ${dash?.fullname ?: "-"} (@${dash?.username ?: "-"})")
+                            appendLine("Paket      : *$itemDetail*")
+                            appendLine("Harga      : $amtFmt")
+                            appendLine("Metode     : Saldo Akun")
+                            appendLine("Status     : AKTIF / LUNAS")
+                            appendLine("=========================")
+                        }.trim()
+
+                        _successReceipt.value = CustomerTransactionReceipt(
+                            kind = CustomerReceiptKind.PLAN_PURCHASE,
+                            title = "Paket Berhasil Diaktifkan",
+                            subtitle = res.message,
+                            timestamp = nowStr,
+                            companyName = company,
+                            senderName = dash?.fullname ?: "-",
+                            senderUsername = dash?.username ?: "-",
+                            itemLabel = itemDetail,
+                            amountFormatted = amtFmt,
+                            paymentMethod = "Saldo Akun",
+                            balanceBeforeFormatted = formatMoney(currency, balBefore),
+                            balanceAfterFormatted = formatMoney(currency, balAfter),
+                            extraNote = res.message,
+                            shareText = shareText
+                        )
                         loadDashboard(isPullRefresh = true)
                         loadTransactions(isPullRefresh = true)
                         onBalancePaidSuccess()
@@ -515,12 +665,40 @@ fun lookupFriend(username: String) {
     fun redeemVoucher() {
         val code = _voucherCodeInput.value.trim()
         if (code.isBlank()) return
+        val dash = (_dashboardState.value as? UiState.Success)?.data
+
         viewModelScope.launch {
             when (val res = repository.redeemVoucher(code)) {
                 is ApiResult.Success -> {
                     _voucherCodeInput.value = ""
-                    _bannerMessage.value = res.message
+                    val company = dash?.companyName?.ifBlank { "PHPNuxBill" } ?: "PHPNuxBill"
+                    val nowStr = currentFormattedTimestamp()
+                    val shareText = buildString {
+                        appendLine("*$company — Bukti Aktivasi Voucher*")
+                        appendLine("=========================")
+                        appendLine("Tanggal    : $nowStr")
+                        appendLine("Pelanggan  : ${dash?.fullname ?: "-"} (@${dash?.username ?: "-"})")
+                        appendLine("Voucher    : *$code*")
+                        appendLine("Status     : AKTIF / BERHASIL")
+                        appendLine("=========================")
+                    }.trim()
+
+                    _successReceipt.value = CustomerTransactionReceipt(
+                        kind = CustomerReceiptKind.VOUCHER_REDEEM,
+                        title = "Voucher Berhasil Diaktifkan",
+                        subtitle = res.message,
+                        invoiceRef = code,
+                        timestamp = nowStr,
+                        companyName = company,
+                        senderName = dash?.fullname ?: "-",
+                        senderUsername = dash?.username ?: "-",
+                        itemLabel = "Voucher $code",
+                        paymentMethod = "Kode Voucher",
+                        extraNote = res.message,
+                        shareText = shareText
+                    )
                     loadDashboard(isPullRefresh = true)
+                    loadTransactions(isPullRefresh = true)
                 }
                 is ApiResult.Error -> _bannerMessage.value = res.message
             }
@@ -540,7 +718,49 @@ fun lookupFriend(username: String) {
                             _activePaymentBill.value = updatedBill
                         }
                         if (isPaid) {
-                            _bannerMessage.value = res.message
+                            val dash = (_dashboardState.value as? UiState.Success)?.data
+                            val paidBill = updatedBill ?: _activePaymentBill.value
+                            val company = dash?.companyName?.ifBlank { "PHPNuxBill" } ?: "PHPNuxBill"
+                            val nowStr = currentFormattedTimestamp()
+                            if (paidBill != null) {
+                                val isBalanceTopUp = paidBill.planName.contains("saldo", true) ||
+                                    paidBill.planName.contains("balance", true)
+                                val amtFmt = formatMoney(paidBill.currency, paidBill.price)
+                                val methodStr = listOf(paidBill.gateway.uppercase(), paidBill.paymentChannel)
+                                    .filter { it.isNotBlank() }
+                                    .joinToString(" • ")
+                                val shareText = buildString {
+                                    appendLine("*$company — Bukti Pembayaran Lunas*")
+                                    appendLine("=========================")
+                                    if (paidBill.trxInvoice.isNotBlank()) appendLine("Invoice    : ${paidBill.trxInvoice}")
+                                    appendLine("Tanggal    : $nowStr")
+                                    appendLine("Pelanggan  : ${dash?.fullname ?: "-"} (@${dash?.username ?: "-"})")
+                                    appendLine("Layanan    : *${paidBill.planName}*")
+                                    appendLine("Nominal    : $amtFmt")
+                                    appendLine("Metode     : $methodStr")
+                                    appendLine("Status     : LUNAS")
+                                    appendLine("=========================")
+                                }.trim()
+
+                                _activePaymentBill.value = null
+                                _successReceipt.value = CustomerTransactionReceipt(
+                                    kind = if (isBalanceTopUp) CustomerReceiptKind.BALANCE_TOPUP else CustomerReceiptKind.PLAN_PURCHASE,
+                                    title = if (isBalanceTopUp) "Top-Up Saldo Berhasil" else "Pembayaran Lunas!",
+                                    subtitle = res.message,
+                                    invoiceRef = paidBill.trxInvoice,
+                                    timestamp = nowStr,
+                                    companyName = company,
+                                    senderName = dash?.fullname ?: "-",
+                                    senderUsername = dash?.username ?: "-",
+                                    itemLabel = paidBill.planName,
+                                    amountFormatted = amtFmt,
+                                    paymentMethod = methodStr,
+                                    extraNote = res.message,
+                                    shareText = shareText
+                                )
+                            } else {
+                                _bannerMessage.value = res.message
+                            }
                             loadDashboard(isPullRefresh = true)
                             loadTransactions(isPullRefresh = true)
                         } else if (!silent) {
