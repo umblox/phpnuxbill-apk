@@ -78,6 +78,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.phpnuxbill.mobile.core.i18n.LocalAppStrings
 import com.phpnuxbill.mobile.core.model.SessionState
 import com.phpnuxbill.mobile.core.model.UiState
+import com.phpnuxbill.mobile.core.ui.components.AppFloatingSnackbarHost
 import com.phpnuxbill.mobile.core.ui.components.AppScreenScaffold
 import com.phpnuxbill.mobile.core.ui.components.BadgeTone
 import com.phpnuxbill.mobile.core.ui.components.ErrorStateView
@@ -388,7 +389,7 @@ fun AssetsScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+        snackbarHost = { AppFloatingSnackbarHost(hostState = snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { viewModel.openAssetForm(null) },
