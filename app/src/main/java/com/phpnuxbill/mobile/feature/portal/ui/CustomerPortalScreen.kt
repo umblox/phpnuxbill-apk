@@ -60,7 +60,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -90,6 +89,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.phpnuxbill.mobile.core.i18n.LocalAppStrings
 import com.phpnuxbill.mobile.core.model.SessionState
 import com.phpnuxbill.mobile.core.model.UiState
+import com.phpnuxbill.mobile.core.ui.components.AppFloatingSnackbarHost
 import com.phpnuxbill.mobile.core.ui.components.AppScreenScaffold
 import com.phpnuxbill.mobile.core.ui.components.BadgeTone
 import com.phpnuxbill.mobile.core.ui.components.BrandLogo
@@ -128,6 +128,8 @@ fun CustomerPortalScreen(
     val couponCode by viewModel.couponCodeInput.collectAsStateWithLifecycle()
     val isSubmitting by viewModel.isSubmitting.collectAsStateWithLifecycle()
     val bannerMessage by viewModel.bannerMessage.collectAsStateWithLifecycle()
+    val friendLookupState by viewModel.friendLookupState.collectAsStateWithLifecycle()
+    val successReceipt by viewModel.successReceipt.collectAsStateWithLifecycle()
 
     val strings = LocalAppStrings.current
     val isEn = strings.langCode == "en"
@@ -141,8 +143,7 @@ fun CustomerPortalScreen(
     var showTransferDialog by remember { mutableStateOf(false) }
     var showSendPlanDialog by remember { mutableStateOf(false) }
     var lastBackPressedAt by remember { mutableLongStateOf(0L) }
-    val friendLookupState by viewModel.friendLookupState.collectAsStateWithLifecycle()
-    
+
     val activeDash = (dashboardState as? UiState.Success)?.data
     val plansData = (plansState as? UiState.Success)?.data
     val effectiveBrandName = activeDash?.companyName?.ifBlank { session.effectiveCompanyName }
@@ -173,6 +174,7 @@ fun CustomerPortalScreen(
 
     BackHandler(enabled = true) {
         when {
+            successReceipt != null -> viewModel.clearSuccessReceipt()
             activePaymentBill != null -> viewModel.closePaymentBill()
             checkoutPlan != null -> viewModel.closeCheckout()
             showProfileScreen -> showProfileScreen = false
@@ -189,6 +191,18 @@ fun CustomerPortalScreen(
                 }
             }
         }
+    }
+
+    // 0. LAYAR BUKTI TRANSAKSI SUKSES (Bagikan + WA ke Teman + Selesai)
+    if (successReceipt != null) {
+        CustomerTransactionSuccessScreen(
+            receipt = successReceipt!!,
+            onDone = {
+                viewModel.clearSuccessReceipt()
+                selectedTab = 0
+            }
+        )
+        return
     }
 
     // 1. LAYAR PEMBAYARAN PENUH
@@ -265,42 +279,49 @@ fun CustomerPortalScreen(
         return
     }
 
-    // Dialog Transfer Saldo & Belikan Paket Teman
+    // Dialog Transfer Saldo (2 Tahap + Konfirmasi Detail) & Belikan Paket Teman (3 Tahap + Konfirmasi Detail)
     if (showTransferDialog && activeDash != null) {
         TransferBalanceDialog(
             currency = activeDash.currency,
             currentBalance = activeDash.balance,
             minimumTransfer = activeDash.minimumTransfer,
+            lookupState = friendLookupState,
             isSubmitting = isSubmitting,
-            onDismiss = { showTransferDialog = false },
-            onConfirm = { targetUser, amt ->
-                viewModel.transferBalance(targetUser, amt) {
+            onLookupFriend = viewModel::lookupFriend,
+            onResetLookup = viewModel::resetFriendLookup,
+            onDismiss = {
+                showTransferDialog = false
+                viewModel.resetFriendLookup()
+            },
+            onConfirm = { friend, amt ->
+                viewModel.transferBalance(friend, amt) {
                     showTransferDialog = false
+                    viewModel.resetFriendLookup()
                 }
             }
         )
     }
 
     if (showSendPlanDialog && activeDash != null) {
-    SendPlanToFriendDialog(
-        currency = activeDash.currency,
-        currentBalance = activeDash.balance,
-        lookupState = friendLookupState,
-        isSubmitting = isSubmitting,
-        onLookupFriend = viewModel::lookupFriend,
-        onResetLookup = viewModel::resetFriendLookup,
-        onDismiss = {
-            showSendPlanDialog = false
-            viewModel.resetFriendLookup()
-        },
-        onConfirm = { friendUser, pId ->
-            viewModel.sendPlanToFriend(friendUser, pId) {
+        SendPlanToFriendDialog(
+            currency = activeDash.currency,
+            currentBalance = activeDash.balance,
+            lookupState = friendLookupState,
+            isSubmitting = isSubmitting,
+            onLookupFriend = viewModel::lookupFriend,
+            onResetLookup = viewModel::resetFriendLookup,
+            onDismiss = {
                 showSendPlanDialog = false
                 viewModel.resetFriendLookup()
+            },
+            onConfirm = { friend, plan ->
+                viewModel.sendPlanToFriend(friend, plan) {
+                    showSendPlanDialog = false
+                    viewModel.resetFriendLookup()
+                }
             }
-        }
-    )
-}
+        )
+    }
 
     // 5. SHELL UTAMA PORTAL PELANGGAN
     Scaffold(
@@ -366,7 +387,7 @@ fun CustomerPortalScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+        snackbarHost = { AppFloatingSnackbarHost(hostState = snackbarHostState) }
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -446,11 +467,14 @@ fun CustomerPortalScreen(
                                             selectedPlansCategory = null
                                             selectedTab = 1
                                         },
-                                        onOpenTransfer = { showTransferDialog = true },
+                                        onOpenTransfer = {
+                                            viewModel.resetFriendLookup()
+                                            showTransferDialog = true
+                                        },
                                         onOpenSendPlan = {
-    viewModel.resetFriendLookup()
-    showSendPlanDialog = true
-}
+                                            viewModel.resetFriendLookup()
+                                            showSendPlanDialog = true
+                                        }
                                     )
                                 }
 
