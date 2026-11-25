@@ -92,6 +92,7 @@ import com.phpnuxbill.mobile.core.auth.AdminRolePolicy
 import com.phpnuxbill.mobile.core.i18n.LocalAppStrings
 import com.phpnuxbill.mobile.core.model.SessionState
 import com.phpnuxbill.mobile.core.model.UiState
+import com.phpnuxbill.mobile.core.ui.components.AppFloatingSnackbarHost
 import com.phpnuxbill.mobile.core.ui.components.AppScreenScaffold
 import com.phpnuxbill.mobile.core.ui.components.BadgeTone
 import com.phpnuxbill.mobile.core.ui.components.ErrorStateView
@@ -365,7 +366,7 @@ fun ServicesScreen(
                 )
             )
         },
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+        snackbarHost = { AppFloatingSnackbarHost(hostState = snackbarHostState) }
     ) { innerPadding ->
         Column(
             modifier = Modifier
