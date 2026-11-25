@@ -6,9 +6,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -16,12 +18,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.CardGiftcard
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.AlertDialog
@@ -34,6 +39,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,8 +52,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.phpnuxbill.mobile.core.i18n.LocalAppStrings
 import com.phpnuxbill.mobile.core.model.UiState
@@ -57,11 +65,6 @@ import com.phpnuxbill.mobile.feature.dashboard.ui.formatMoney
 import com.phpnuxbill.mobile.feature.portal.model.CustomerBuyPlanItem
 import com.phpnuxbill.mobile.feature.portal.model.FriendPlanLookupResult
 
-/**
- * Dialog Transfer Saldo (2 Tahap):
- * Tahap 1: Input Username Tujuan & Nominal -> Cek & Verifikasi Akun Penerima
- * Tahap 2: Konfirmasi Detail (Nama Lengkap, @username, Nominal, Sisa Saldo) -> Setuju & Kirim / Kembali
- */
 @Composable
 fun TransferBalanceDialog(
     currency: String,
@@ -86,15 +89,9 @@ fun TransferBalanceDialog(
 
     val verifiedFriend = (lookupState as? UiState.Success)?.data
     val isCheckingFriend = lookupState is UiState.Loading
-    val lookupError = (lookupState as? UiState.Error)?.message
 
     AlertDialog(
-        onDismissRequest = {
-            if (!isSubmitting) {
-                onResetLookup()
-                onDismiss()
-            }
-        },
+        onDismissRequest = { if (!isSubmitting) onDismiss() },
         containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp,
         shape = RoundedCornerShape(22.dp),
@@ -134,7 +131,7 @@ fun TransferBalanceDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 if (verifiedFriend == null) {
-                    // TAHAP 1: Input & Verifikasi Penerima
+                    // TAHAP 1: Input Username Tujuan & Nominal
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
@@ -167,10 +164,11 @@ fun TransferBalanceDialog(
                         value = targetUser,
                         onValueChange = {
                             targetUser = it
-                            if (lookupError != null) onResetLookup()
+                            if (lookupState is UiState.Error) onResetLookup()
                         },
                         label = { Text(if (isEn) "Recipient Username" else "Username Tujuan") },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -179,7 +177,17 @@ fun TransferBalanceDialog(
                         value = amountText,
                         onValueChange = { amountText = it.filter { c -> c.isDigit() } },
                         label = { Text(if (isEn) "Amount ($currency)" else "Nominal ($currency)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Number,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = {
+                                if (isInputValid && !isCheckingFriend) {
+                                    onLookupFriend(targetUser.trim())
+                                }
+                            }
+                        ),
                         isError = belowMin || overBalance,
                         supportingText = {
                             when {
@@ -198,28 +206,36 @@ fun TransferBalanceDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    if (!lookupError.isNullOrBlank()) {
+                    if (lookupState is UiState.Error) {
                         Surface(
                             shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.errorContainer,
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                text = lookupError,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                modifier = Modifier.padding(10.dp)
-                            )
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = lookupState.message,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
                         }
                     }
                 } else {
-                    // TAHAP 2: Konfirmasi Detail Sebelum Memotong Saldo
+                    // TAHAP 2: Konfirmasi Detail Penerima & Saldo
                     Text(
-                        text = if (isEn) {
-                            "Please verify the transfer details below before approving:"
-                        } else {
-                            "Pastikan rincian transfer berikut sudah benar sebelum disetujui:"
-                        },
+                        text = if (isEn) "Please verify the transfer details below before approving:"
+                        else "Pastikan rincian transfer berikut sudah benar sebelum disetujui:",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -305,10 +321,7 @@ fun TransferBalanceDialog(
         dismissButton = {
             if (verifiedFriend == null) {
                 OutlinedButton(
-                    onClick = {
-                        onResetLookup()
-                        onDismiss()
-                    },
+                    onClick = onDismiss,
                     enabled = !isCheckingFriend,
                     shape = RoundedCornerShape(12.dp)
                 ) {
@@ -327,12 +340,6 @@ fun TransferBalanceDialog(
     )
 }
 
-/**
- * Dialog Belikan Paket Teman (3 Tahap):
- * Tahap 1: Cek & Verifikasi Akun Teman (customer_lookup_friend)
- * Tahap 2: Pilih Paket yang Sesuai Tipe Layanan Teman (atau terkunci paket aktif teman)
- * Tahap 3: Konfirmasi Detail (Nama Teman, Paket, Harga, Saldo Sebelum -> Sisa Saldo) -> Setuju & Aktifkan
- */
 @Composable
 fun SendPlanToFriendDialog(
     currency: String,
@@ -346,50 +353,44 @@ fun SendPlanToFriendDialog(
 ) {
     val strings = LocalAppStrings.current
     val isEn = strings.langCode == "en"
-    var friendUsername by remember { mutableStateOf("") }
+
+    var usernameInput by remember { mutableStateOf("") }
     var selectedPlanId by remember { mutableIntStateOf(0) }
     var isConfirmStep by remember { mutableStateOf(false) }
 
-    val friendData = (lookupState as? UiState.Success)?.data
-    val isCheckingFriend = lookupState is UiState.Loading
-    val lookupError = (lookupState as? UiState.Error)?.message
+    val verifiedFriend = (lookupState as? UiState.Success)?.data
 
-    // Auto-pilih paket aktif/terakhir teman saat data teman baru diterima
-    LaunchedEffect(friendData) {
+    // Otomatis pilih paket terakhir/aktif teman jika saldo mencukupi begitu akun ditemukan
+    LaunchedEffect(verifiedFriend) {
         isConfirmStep = false
-        if (friendData != null) {
-            selectedPlanId = when {
-                friendData.hasActivePlan && friendData.activePlanId > 0 -> friendData.activePlanId
-                friendData.lastPlan != null -> friendData.lastPlan.id
-                else -> friendData.eligiblePlans.firstOrNull()?.id ?: 0
-            }
-        } else {
+        if (verifiedFriend == null) {
             selectedPlanId = 0
+            return@LaunchedEffect
+        }
+        val lp = verifiedFriend.lastPlan
+        selectedPlanId = when {
+            lp != null && currentBalance >= lp.price -> lp.id
+            !verifiedFriend.hasActivePlan -> verifiedFriend.eligiblePlans.firstOrNull { currentBalance >= it.price }?.id ?: 0
+            else -> 0
         }
     }
 
-    val candidatePlans = remember(friendData) {
-        if (friendData == null) emptyList()
-        else if (friendData.hasActivePlan && friendData.activePlanId > 0) {
-            val activeObj = friendData.eligiblePlans.find { it.id == friendData.activePlanId }
-                ?: friendData.lastPlan?.takeIf { it.id == friendData.activePlanId }
-            listOfNotNull(activeObj)
-        } else {
-            friendData.eligiblePlans
+    val allCandidatePlans = remember(verifiedFriend) {
+        if (verifiedFriend == null) emptyList()
+        else buildList {
+            verifiedFriend.lastPlan?.let { add(it) }
+            verifiedFriend.eligiblePlans.forEach { p ->
+                if (none { it.id == p.id }) add(p)
+            }
         }
     }
-
-    val selectedPlan = candidatePlans.find { it.id == selectedPlanId }
-        ?: friendData?.lastPlan?.takeIf { it.id == selectedPlanId }
-    val canAffordSelected = selectedPlan != null && currentBalance >= selectedPlan.price
+    val pickedPlan = allCandidatePlans.find { it.id == selectedPlanId }
+    val canProceed = verifiedFriend != null &&
+        pickedPlan != null &&
+        currentBalance >= pickedPlan.price
 
     AlertDialog(
-        onDismissRequest = {
-            if (!isSubmitting) {
-                onResetLookup()
-                onDismiss()
-            }
-        },
+        onDismissRequest = { if (!isSubmitting) onDismiss() },
         containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp,
         shape = RoundedCornerShape(22.dp),
@@ -412,10 +413,10 @@ fun SendPlanToFriendDialog(
         },
         title = {
             Text(
-                text = when {
-                    isConfirmStep -> if (isEn) "Confirm Friend's Plan" else "Konfirmasi Beli Paket Teman"
-                    friendData != null -> if (isEn) "Select Friend's Plan" else "Pilih Paket untuk Teman"
-                    else -> if (isEn) "Buy Plan for Friend" else "Belikan Paket Teman"
+                text = if (isConfirmStep) {
+                    if (isEn) "Confirm Friend's Plan" else "Konfirmasi Beli Paket Teman"
+                } else {
+                    if (isEn) "Buy Plan for Friend" else "Belikan Paket Teman"
                 },
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
@@ -424,199 +425,262 @@ fun SendPlanToFriendDialog(
         text = {
             Column(
                 modifier = Modifier
-                    .heightIn(max = 430.dp)
+                    .heightIn(max = 440.dp)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                // Header Saldo Pengirim (tampil pada Tahap 1 & Tahap 2)
+                if (!isConfirmStep) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (isEn) "Your Balance" else "Saldo Anda",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = formatMoney(currency, currentBalance),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+
                 when {
-                    // TAHAP 1: Cek Akun Teman
-                    friendData == null -> {
+                    // =========================================================
+                    // TAHAP 1: CARI & VERIFIKASI USERNAME TEMAN
+                    // =========================================================
+                    verifiedFriend == null -> {
+                        Text(
+                            text = if (isEn) "Step 1: Enter your friend's username to check their account and eligible plans."
+                            else "Langkah 1: Masukkan username teman untuk mengecek akun dan paket yang sesuai.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = usernameInput,
+                                onValueChange = {
+                                    usernameInput = it
+                                    if (lookupState is UiState.Error) onResetLookup()
+                                },
+                                label = { Text(if (isEn) "Friend's Username" else "Username Teman") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(
+                                    onSearch = {
+                                        if (usernameInput.isNotBlank() && lookupState !is UiState.Loading) {
+                                            onLookupFriend(usernameInput)
+                                        }
+                                    }
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
+                            )
+                            Button(
+                                onClick = { onLookupFriend(usernameInput) },
+                                enabled = usernameInput.isNotBlank() && lookupState !is UiState.Loading,
+                                shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp),
+                                modifier = Modifier.height(54.dp)
+                            ) {
+                                if (lookupState is UiState.Loading) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                } else {
+                                    Icon(Icons.Outlined.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(if (isEn) "Check" else "Cek")
+                                }
+                            }
+                        }
+
+                        if (lookupState is UiState.Error) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.ErrorOutline,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        text = lookupState.message,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // =========================================================
+                    // TAHAP 2: AKUN TERVERIFIKASI -> PILIH PAKET SESUAI AKUN
+                    // =========================================================
+                    !isConfirmStep -> {
                         Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(
-                                    text = if (isEn) "Paid via Account Balance" else "Dibayar Memakai Saldo Anda",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.VerifiedUser,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = verifiedFriend.fullname,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "@${verifiedFriend.username}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        StatusBadge(text = verifiedFriend.serviceType.uppercase(), tone = BadgeTone.NEUTRAL)
+                                    }
+                                }
+                                TextButton(
+                                    onClick = {
+                                        selectedPlanId = 0
+                                        onResetLookup()
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(if (isEn) "Change" else "Ganti")
+                                }
+                            }
+                        }
+
+                        // 2A. Paket Terakhir / Aktif Milik Teman
+                        if (verifiedFriend.lastPlan != null) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.History,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
                                 )
                                 Text(
-                                    text = formatMoney(currency, currentBalance),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.ExtraBold,
+                                    text = if (verifiedFriend.hasActivePlan) {
+                                        if (isEn) "Friend's Active Plan (Renew)" else "Paket Aktif Teman (Perpanjang)"
+                                    } else {
+                                        if (isEn) "Friend's Last Plan" else "Paket Terakhir Teman"
+                                    },
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             }
-                        }
 
-                        OutlinedTextField(
-                            value = friendUsername,
-                            onValueChange = {
-                                friendUsername = it
-                                if (lookupError != null) onResetLookup()
-                            },
-                            label = { Text(if (isEn) "Friend's Username" else "Username Teman") },
-                            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                            FriendPlanOptionRow(
+                                plan = verifiedFriend.lastPlan,
+                                currency = currency,
+                                currentBalance = currentBalance,
+                                isSelected = selectedPlanId == verifiedFriend.lastPlan.id,
+                                isEn = isEn,
+                                onSelect = { selectedPlanId = verifiedFriend.lastPlan.id }
+                            )
 
-                        if (!lookupError.isNullOrBlank()) {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.errorContainer,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
+                            if (verifiedFriend.hasActivePlan) {
                                 Text(
-                                    text = lookupError,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                    modifier = Modifier.padding(10.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    // TAHAP 2: Pilih Paket Sesuai Tipe Akun Teman
-                    !isConfirmStep -> {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = friendData.fullname,
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    StatusBadge(text = friendData.serviceType.uppercase(), tone = BadgeTone.NEUTRAL)
-                                }
-                                Text(
-                                    text = "@${friendData.username}",
+                                    text = if (isEn) {
+                                        "This account currently has an active package (${verifiedFriend.activePlanName}). You can only renew the same package."
+                                    } else {
+                                        "Akun teman sedang memiliki paket aktif (${verifiedFriend.activePlanName}). Pembelian hanya dapat memperpanjang paket yang sama."
+                                    },
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                                if (friendData.hasActivePlan && friendData.activePlanName.isNotBlank()) {
-                                    Text(
-                                        text = if (isEn) {
-                                            "Active plan: ${friendData.activePlanName} (exp ${friendData.activeExpiration}). Renewal is locked to the same plan."
-                                        } else {
-                                            "Paket aktif: ${friendData.activePlanName} (s/d ${friendData.activeExpiration}). Perpanjangan terkunci ke paket yang sama."
-                                        },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
                             }
                         }
 
-                        if (candidatePlans.isEmpty()) {
-                            Text(
-                                text = if (isEn) "No eligible plans found for this account."
-                                else "Tidak ada paket aktif yang cocok untuk akun teman ini.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        } else {
-                            candidatePlans.forEach { p ->
-                                val canAfford = currentBalance >= p.price
-                                val picked = selectedPlanId == p.id
-                                val isLast = friendData.lastPlan?.id == p.id
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = if (picked) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
-                                    else MaterialTheme.colorScheme.background,
-                                    border = BorderStroke(
-                                        width = if (picked) 1.5.dp else 1.dp,
-                                        color = if (picked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
-                                    ),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .alpha(if (canAfford) 1f else 0.55f)
-                                        .clickable(enabled = canAfford) { selectedPlanId = p.id }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Text(
-                                                    text = p.namePlan,
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    fontWeight = if (picked) FontWeight.Bold else FontWeight.Medium
-                                                )
-                                                if (isLast) {
-                                                    StatusBadge(
-                                                        text = if (isEn) "Last" else "Terakhir",
-                                                        tone = BadgeTone.SUCCESS
-                                                    )
-                                                }
-                                            }
-                                            val metaText = listOf(p.validity, p.bandwidth).filter { it.isNotBlank() }.joinToString(" • ")
-                                            if (metaText.isNotBlank()) {
-                                                Text(
-                                                    text = metaText,
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                            if (!canAfford) {
-                                                Text(
-                                                    text = if (isEn) "Insufficient balance" else "Saldo tidak cukup",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.error
-                                                )
-                                            }
-                                        }
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Text(
-                                                text = formatMoney(currency, p.price),
-                                                style = MaterialTheme.typography.labelLarge,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (canAfford) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-                                            )
-                                            if (picked && canAfford) {
-                                                Icon(
-                                                    imageVector = Icons.Outlined.CheckCircle,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
-                                        }
-                                    }
+                        // 2B. Daftar Paket Sesuai Jenis Pelanggan Teman (Jika tidak terkunci oleh paket aktif)
+                        if (!verifiedFriend.hasActivePlan) {
+                            val otherPlans = remember(verifiedFriend) {
+                                verifiedFriend.eligiblePlans.filter { it.id != verifiedFriend.lastPlan?.id }
+                            }
+                            if (otherPlans.isNotEmpty()) {
+                                if (verifiedFriend.lastPlan != null) {
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                                 }
+                                Text(
+                                    text = if (isEn) "Available ${verifiedFriend.serviceType} Plans"
+                                    else "Pilihan Paket ${verifiedFriend.serviceType}",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                otherPlans.forEach { p ->
+                                    FriendPlanOptionRow(
+                                        plan = p,
+                                        currency = currency,
+                                        currentBalance = currentBalance,
+                                        isSelected = selectedPlanId == p.id,
+                                        isEn = isEn,
+                                        onSelect = { selectedPlanId = p.id }
+                                    )
+                                }
+                            } else if (verifiedFriend.lastPlan == null) {
+                                Text(
+                                    text = if (isEn) "No eligible plans available for this account type."
+                                    else "Belum ada paket yang tersedia untuk tipe akun ini.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     }
 
-                    // TAHAP 3: Konfirmasi Detail Pembelian Paket Teman
-                    selectedPlan != null -> {
+                    // =========================================================
+                    // TAHAP 3: KONFIRMASI DETAIL SEBELUM AKTIVASI PAKET TEMAN
+                    // =========================================================
+                    pickedPlan != null -> {
                         Text(
-                            text = if (isEn) {
-                                "Please confirm the package purchase for your friend below:"
-                            } else {
-                                "Pastikan rincian pembelian paket untuk teman berikut sudah sesuai:"
-                            },
+                            text = if (isEn) "Please verify the package purchase details for your friend:"
+                            else "Pastikan rincian pembelian paket untuk teman berikut sudah sesuai:",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -633,48 +697,48 @@ fun SendPlanToFriendDialog(
                             ) {
                                 ConfirmSummaryRow(
                                     label = if (isEn) "Recipient" else "Penerima",
-                                    value = friendData.fullname,
+                                    value = verifiedFriend.fullname,
                                     highlight = true
                                 )
                                 ConfirmSummaryRow(
                                     label = "Username",
-                                    value = "@${friendData.username}"
+                                    value = "@${verifiedFriend.username}"
                                 )
                                 ConfirmSummaryRow(
-                                    label = if (isEn) "Service" else "Layanan",
-                                    value = friendData.serviceType
+                                    label = if (isEn) "Service Type" else "Layanan",
+                                    value = verifiedFriend.serviceType
                                 )
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                                 ConfirmSummaryRow(
-                                    label = if (isEn) "Package" else "Paket Dipilih",
-                                    value = selectedPlan.namePlan,
+                                    label = if (isEn) "Selected Plan" else "Paket Dipilih",
+                                    value = pickedPlan.namePlan,
                                     highlight = true
                                 )
-                                if (selectedPlan.validity.isNotBlank()) {
+                                if (pickedPlan.validity.isNotBlank()) {
                                     ConfirmSummaryRow(
                                         label = if (isEn) "Validity" else "Masa Aktif",
-                                        value = selectedPlan.validity
+                                        value = pickedPlan.validity
                                     )
                                 }
-                                if (selectedPlan.bandwidth.isNotBlank()) {
+                                if (pickedPlan.bandwidth.isNotBlank()) {
                                     ConfirmSummaryRow(
                                         label = "Bandwidth",
-                                        value = selectedPlan.bandwidth
+                                        value = pickedPlan.bandwidth
                                     )
                                 }
                                 ConfirmSummaryRow(
                                     label = if (isEn) "Price" else "Harga Paket",
-                                    value = formatMoney(currency, selectedPlan.price),
+                                    value = formatMoney(currency, pickedPlan.price),
                                     highlight = true
                                 )
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                                 ConfirmSummaryRow(
-                                    label = if (isEn) "Your Balance" else "Saldo Anda",
+                                    label = if (isEn) "Your Balance" else "Saldo Saat Ini",
                                     value = formatMoney(currency, currentBalance)
                                 )
                                 ConfirmSummaryRow(
                                     label = if (isEn) "Balance After" else "Estimasi Sisa Saldo",
-                                    value = formatMoney(currency, (currentBalance - selectedPlan.price).coerceAtLeast(0.0)),
+                                    value = formatMoney(currency, (currentBalance - pickedPlan.price).coerceAtLeast(0.0)),
                                     highlight = true
                                 )
                             }
@@ -685,36 +749,19 @@ fun SendPlanToFriendDialog(
         },
         confirmButton = {
             when {
-                friendData == null -> {
-                    Button(
-                        onClick = { onLookupFriend(friendUsername.trim()) },
-                        enabled = !isCheckingFriend && friendUsername.trim().isNotBlank(),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        if (isCheckingFriend) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                        }
-                        Text(if (isEn) "Check Account" else "Cek Akun")
-                    }
-                }
-                !isConfirmStep -> {
+                verifiedFriend != null && !isConfirmStep -> {
                     Button(
                         onClick = { isConfirmStep = true },
-                        enabled = canAffordSelected,
+                        enabled = canProceed && !isSubmitting,
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(if (isEn) "Continue" else "Lanjut Konfirmasi")
                     }
                 }
-                selectedPlan != null -> {
+                verifiedFriend != null && isConfirmStep && pickedPlan != null -> {
                     Button(
-                        onClick = { onConfirm(friendData, selectedPlan) },
-                        enabled = !isSubmitting && canAffordSelected,
+                        onClick = { onConfirm(verifiedFriend, pickedPlan) },
+                        enabled = canProceed && !isSubmitting,
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         if (isSubmitting) {
@@ -731,35 +778,21 @@ fun SendPlanToFriendDialog(
             }
         },
         dismissButton = {
-            when {
-                friendData == null -> {
-                    OutlinedButton(
-                        onClick = {
-                            onResetLookup()
-                            onDismiss()
-                        },
-                        enabled = !isCheckingFriend,
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(strings.cancel)
-                    }
+            if (isConfirmStep) {
+                OutlinedButton(
+                    onClick = { isConfirmStep = false },
+                    enabled = !isSubmitting,
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(if (isEn) "Back" else "Kembali")
                 }
-                !isConfirmStep -> {
-                    OutlinedButton(
-                        onClick = onResetLookup,
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(if (isEn) "Change Friend" else "Ganti Teman")
-                    }
-                }
-                else -> {
-                    OutlinedButton(
-                        onClick = { isConfirmStep = false },
-                        enabled = !isSubmitting,
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(if (isEn) "Back" else "Kembali")
-                    }
+            } else {
+                OutlinedButton(
+                    onClick = onDismiss,
+                    enabled = !isSubmitting,
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(strings.cancel)
                 }
             }
         }
@@ -792,5 +825,85 @@ private fun ConfirmSummaryRow(
             textAlign = TextAlign.End,
             modifier = Modifier.weight(1.25f)
         )
+    }
+}
+
+@Composable
+private fun FriendPlanOptionRow(
+    plan: CustomerBuyPlanItem,
+    currency: String,
+    currentBalance: Double,
+    isSelected: Boolean,
+    isEn: Boolean,
+    onSelect: () -> Unit
+) {
+    val canAfford = currentBalance >= plan.price
+    val deficit = (plan.price - currentBalance).coerceAtLeast(0.0)
+    val activeSelected = isSelected && canAfford
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = if (activeSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f) else MaterialTheme.colorScheme.background,
+        border = BorderStroke(
+            width = if (activeSelected) 1.5.dp else 1.dp,
+            color = if (activeSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(if (canAfford) 1f else 0.55f)
+            .clickable(enabled = canAfford, onClick = onSelect)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = plan.namePlan,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (activeSelected) FontWeight.Bold else FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val meta = listOf(plan.type, plan.bandwidth, plan.validity)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" • ")
+                if (meta.isNotBlank()) {
+                    Text(
+                        text = meta,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (!canAfford) {
+                    Text(
+                        text = if (isEn) "Insufficient balance (short ${formatMoney(currency, deficit)})"
+                        else "Saldo kurang ${formatMoney(currency, deficit)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = formatMoney(currency, plan.price),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = if (canAfford) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                )
+                if (activeSelected) {
+                    Icon(
+                        imageVector = Icons.Outlined.CheckCircle,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
     }
 }
