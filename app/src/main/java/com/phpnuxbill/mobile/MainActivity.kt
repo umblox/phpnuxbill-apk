@@ -63,6 +63,7 @@ import com.phpnuxbill.mobile.feature.operations.ui.SettingsSystemScreen
 import com.phpnuxbill.mobile.feature.plans.ui.BandwidthScreen
 import com.phpnuxbill.mobile.feature.plans.ui.PlanBandwidthViewModel
 import com.phpnuxbill.mobile.feature.plans.ui.PlansScreen
+import com.phpnuxbill.mobile.feature.portal.ui.CustomerMaintenanceScreen
 import com.phpnuxbill.mobile.feature.portal.ui.CustomerPortalScreen
 import com.phpnuxbill.mobile.feature.portal.ui.CustomerPortalViewModel
 import com.phpnuxbill.mobile.feature.services.model.PrepaidServiceItem
@@ -89,6 +90,8 @@ class MainActivity : ComponentActivity() {
                 )
             )
             val loadedSession by authViewModel.bootstrapSession.collectAsStateWithLifecycle()
+            val maintenanceInfo by authViewModel.maintenanceState.collectAsStateWithLifecycle()
+            val isRecheckingMaintenance by authViewModel.isRecheckingMaintenance.collectAsStateWithLifecycle()
 
             if (loadedSession == null) {
                 PHPNuxBillTheme {
@@ -99,9 +102,32 @@ class MainActivity : ComponentActivity() {
                 val activeLang = AppLanguage.fromCode(session.languageCode)
                 val strings = remember(activeLang) { getStringsForLanguage(activeLang) }
 
+                // Selaras PHPNuxBill resmi: layar Maintenance hanya menahan Pelanggan & login Pelanggan,
+                // sementara seluruh 5 level Admin/Staf tetap beroperasi penuh.
+                val showCustomerMaintenance = maintenanceInfo != null &&
+                    (!session.isLoggedIn || session.role == UserRole.CUSTOMER)
+
                 CompositionLocalProvider(LocalAppStrings provides strings) {
                     PHPNuxBillTheme(themeMode = session.themeMode) {
                         when {
+                            showCustomerMaintenance -> {
+                                CustomerMaintenanceScreen(
+                                    maintenance = maintenanceInfo!!,
+                                    session = session,
+                                    isRechecking = isRecheckingMaintenance,
+                                    onRecheck = {
+                                        authViewModel.onRecheckMaintenance(maintenanceInfo?.serverUrl)
+                                    },
+                                    onLanguageSelected = authViewModel::onLanguageSelected,
+                                    onBackToLoginOrLogout = {
+                                        if (session.isLoggedIn) {
+                                            authViewModel.onLogout()
+                                        } else {
+                                            authViewModel.onDismissMaintenance()
+                                        }
+                                    }
+                                )
+                            }
                             !session.isLoggedIn -> {
                                 LoginScreen(viewModel = authViewModel)
                             }
@@ -113,6 +139,12 @@ class MainActivity : ComponentActivity() {
                                         sessionStorage = container.sessionStorage
                                     )
                                 )
+                                // Pulihkan beranda secara otomatis jika baru kembali dari layar Maintenance (forceLogout = false)
+                                LaunchedEffect(portalVm) {
+                                    if (portalVm.dashboardState.value is UiState.Error) {
+                                        portalVm.loadDashboard()
+                                    }
+                                }
                                 CustomerPortalScreen(
                                     viewModel = portalVm,
                                     session = session,
@@ -217,7 +249,7 @@ private fun AuthenticatedAdminShell(
         )
         return
     }
-    
+
     // Overlay Layar Penuh Detail & Live Speed untuk User Online yang diklik dari Tab User Online MikroTik
     if (showMikrotikOnlineDetail) {
         val selectedItem by serviceVm.selectedActiveService.collectAsStateWithLifecycle()
