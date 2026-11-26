@@ -52,6 +52,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -71,7 +72,6 @@ import com.phpnuxbill.mobile.core.model.SessionState
 import com.phpnuxbill.mobile.core.ui.components.BrandLogo
 import com.phpnuxbill.mobile.core.ui.components.LanguageToggleChip
 import com.phpnuxbill.mobile.core.ui.theme.BrandBlue600
-import com.phpnuxbill.mobile.core.ui.theme.BrandNavy800
 import com.phpnuxbill.mobile.core.ui.theme.BrandNavy900
 import com.phpnuxbill.mobile.core.ui.theme.BrandTeal500
 import com.phpnuxbill.mobile.core.ui.theme.StatusWarningBgLight
@@ -103,6 +103,7 @@ fun CustomerMaintenanceScreen(
     val context = LocalContext.current
     val scrollState = rememberScrollState()
     var lastBackPressedAt by remember { mutableLongStateOf(0L) }
+    var wasRechecking by remember { mutableStateOf(false) }
 
     val companyName = maintenance.companyName.ifBlank { session.effectiveCompanyName }
     val logoUrl = maintenance.logoUrl.ifBlank { session.serverLogoUrl }
@@ -118,6 +119,20 @@ fun CustomerMaintenanceScreen(
                 delay(1000L)
             }
         }
+    }
+
+    // Umpan balik singkat apabila tombol Cek Status Lagi selesai tetapi server masih dalam pemeliharaan
+    LaunchedEffect(isRechecking) {
+        if (wasRechecking && !isRechecking) {
+            delay(120L)
+            val msg = if (isEn) {
+                "Server is still under maintenance. Please try again later."
+            } else {
+                "Server masih dalam pemeliharaan. Silakan coba kembali nanti."
+            }
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+        }
+        wasRechecking = isRechecking
     }
 
     val countdown = remember(targetMillis, nowMillis) {
@@ -217,7 +232,7 @@ fun CustomerMaintenanceScreen(
                         .padding(horizontal = 20.dp, vertical = 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Animasi 3 Roda Gigi Berputar (1 oranye utama + 2 sekunder)
+                    // Animasi 3 Roda Gigi Berputar simetris & kontras di Light/Dark Mode
                     AnimatedMaintenanceGears()
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -518,18 +533,18 @@ private fun AnimatedMaintenanceGears() {
 
     Box(
         modifier = Modifier
-            .width(156.dp)
-            .height(92.dp),
+            .width(172.dp)
+            .height(96.dp),
         contentAlignment = Alignment.Center
     ) {
-        // Roda gigi kiri (berlawanan arah jarum jam)
+        // Roda gigi kiri atas (adaptif Light/Dark Mode, berlawanan arah jarum jam)
         Icon(
             imageVector = Icons.Outlined.Settings,
             contentDescription = null,
-            tint = BrandNavy800,
+            tint = MaterialTheme.colorScheme.secondary,
             modifier = Modifier
-                .size(46.dp)
-                .offset(x = (-42).dp, y = (-12).dp)
+                .offset(x = (-48).dp, y = (-14).dp)
+                .size(44.dp)
                 .rotate(spinCcw)
         )
         // Roda gigi tengah utama (oranye #F6921E sesuai maintenance.tpl resmi)
@@ -538,17 +553,17 @@ private fun AnimatedMaintenanceGears() {
             contentDescription = null,
             tint = Color(0xFFF6921E),
             modifier = Modifier
-                .size(66.dp)
+                .size(62.dp)
                 .rotate(spinCw)
         )
-        // Roda gigi kanan (berlawanan arah jarum jam)
+        // Roda gigi kanan bawah (adaptif Light/Dark Mode, berlawanan arah jarum jam)
         Icon(
             imageVector = Icons.Outlined.Settings,
             contentDescription = null,
-            tint = BrandBlue600,
+            tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier
+                .offset(x = 48.dp, y = 14.dp)
                 .size(44.dp)
-                .offset(x = 42.dp, y = 14.dp)
                 .rotate(spinCcw)
         )
     }
