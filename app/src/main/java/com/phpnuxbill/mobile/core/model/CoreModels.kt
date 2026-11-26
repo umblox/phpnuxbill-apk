@@ -4,6 +4,19 @@ import com.google.gson.JsonElement
 import com.google.gson.annotations.SerializedName
 
 /**
+ * Informasi resmi Mode Maintenance (HTTP 503 JSON dari helpers_common.php v3.1.0)
+ */
+data class MaintenanceInfo(
+    val forceLogout: Boolean = false,
+    val maintenanceDate: String = "",
+    val companyName: String = "PHPNuxBill",
+    val companyPhone: String = "",
+    val logoUrl: String = "",
+    val message: String = "",
+    val serverUrl: String = ""
+)
+
+/**
  * Envelope respons standar dari PHPNuxBill Mobile API (api_out)
  */
 data class RawApiEnvelope(
@@ -32,8 +45,12 @@ sealed class ApiResult<out T> {
     data class Error(
         val message: String,
         val code: Int = 0,
-        val isUnauthorized: Boolean = (code == 401)
-    ) : ApiResult<Nothing>()
+        val isUnauthorized: Boolean = (code == 401),
+        val maintenance: MaintenanceInfo? = null
+    ) : ApiResult<Nothing>() {
+        val isMaintenance: Boolean
+            get() = maintenance != null || code == 503
+    }
 }
 
 /**
@@ -69,17 +86,20 @@ enum class AppThemeMode(val key: String) {
 
 /**
  * Profil server tersimpan (mendukung multi-server & identitas white-label dinamis)
+ * Seluruh properti memiliki default agar Gson selalu mengisi nilai aman pada JSON lama.
  */
 data class ServerProfile(
-    val id: String,
-    val serverUrl: String,
+    val id: String = "",
+    val serverUrl: String = "",
     val companyName: String = "PHPNuxBill",
     val currencyCode: String = "Rp.",
     val serverLogoUrl: String = "",
     val username: String = "",
     val role: UserRole = UserRole.ADMIN,
     val token: String = "",
-    val lastUsedAt: Long = System.currentTimeMillis()
+    val lastUsedAt: Long = System.currentTimeMillis(),
+    val fullname: String = "",
+    val userType: String = ""
 )
 
 /**
