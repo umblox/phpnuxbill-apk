@@ -138,3 +138,51 @@ dependencies {
     // Coil Image Loading (Menampilkan Logo Server & Logo Galeri Lokal)
     implementation("io.coil-kt:coil-compose:2.7.0")
 }
+
+// ACS_SIGNING_CONFIG_START
+val keystorePropertiesFile = listOf(
+    file("keystore.properties"),
+    rootProject.file("keystore.properties")
+).firstOrNull { it.exists() }
+
+val acsProps = if (keystorePropertiesFile != null) {
+    keystorePropertiesFile.readLines()
+        .filter { line -> !line.trimStart().startsWith("#") && '=' in line }
+        .associate { it.substringBefore('=').trim() to it.substringAfter('=').trim() }
+} else emptyMap()
+
+val resolvedStoreFilePath = System.getenv("SIGNING_STORE_FILE")?.takeIf { it.isNotBlank() }
+    ?: acsProps["storeFile"]
+val resolvedStorePassword = System.getenv("SIGNING_STORE_PASSWORD")?.takeIf { it.isNotBlank() }
+    ?: acsProps["storePassword"]
+val resolvedKeyAlias = System.getenv("SIGNING_KEY_ALIAS")?.takeIf { it.isNotBlank() }
+    ?: acsProps["keyAlias"]
+val resolvedKeyPassword = System.getenv("SIGNING_KEY_PASSWORD")?.takeIf { it.isNotBlank() }
+    ?: acsProps["keyPassword"]
+
+val hasValidReleaseSigning = !resolvedStoreFilePath.isNullOrBlank() &&
+    file(resolvedStoreFilePath).exists() &&
+    !resolvedStorePassword.isNullOrBlank() &&
+    !resolvedKeyAlias.isNullOrBlank() &&
+    !resolvedKeyPassword.isNullOrBlank()
+
+android {
+    signingConfigs {
+        maybeCreate("release").apply {
+            if (hasValidReleaseSigning) {
+                storeFile = file(resolvedStoreFilePath!!)
+                storePassword = resolvedStorePassword
+                keyAlias = resolvedKeyAlias
+                keyPassword = resolvedKeyPassword
+            }
+        }
+    }
+    buildTypes {
+        getByName("release") {
+            if (hasValidReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+    }
+}
+// ACS_SIGNING_CONFIG_END
