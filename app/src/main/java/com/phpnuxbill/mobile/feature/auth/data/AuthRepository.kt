@@ -1,20 +1,27 @@
 package com.phpnuxbill.mobile.feature.auth.data
 
-import com.google.gson.JsonObject
 import com.phpnuxbill.mobile.core.datastore.DataStoreSessionStorage
 import com.phpnuxbill.mobile.core.datastore.SessionStorage
 import com.phpnuxbill.mobile.core.i18n.AppLanguage
 import com.phpnuxbill.mobile.core.model.ApiResult
+import com.phpnuxbill.mobile.core.model.MaintenanceInfo
 import com.phpnuxbill.mobile.core.model.ServerProfile
 import com.phpnuxbill.mobile.core.model.UserRole
 import com.phpnuxbill.mobile.core.network.NetworkGateway
+import com.phpnuxbill.mobile.core.network.asObjOrNull
+import com.phpnuxbill.mobile.core.network.boolVal
+import com.phpnuxbill.mobile.core.network.str
 import com.phpnuxbill.mobile.feature.auth.model.LoginResult
 import com.phpnuxbill.mobile.feature.auth.model.ServerInfoResult
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Kontrak Repository Autentikasi (SOLID - ISP & DIP)
  */
 interface AuthRepository {
+    val maintenanceState: StateFlow<MaintenanceInfo?>
+    fun clearMaintenanceState()
+
     suspend fun probeServer(serverUrl: String): ApiResult<ServerInfoResult>
     suspend fun login(
         serverUrl: String,
@@ -34,6 +41,12 @@ class RemoteAuthRepository(
     private val sessionStorage: SessionStorage
 ) : AuthRepository {
 
+    override val maintenanceState: StateFlow<MaintenanceInfo?> = networkGateway.maintenanceState
+
+    override fun clearMaintenanceState() {
+        networkGateway.clearMaintenanceState()
+    }
+
     override suspend fun probeServer(serverUrl: String): ApiResult<ServerInfoResult> {
         val cleanUrl = DataStoreSessionStorage.normalizeServerUrl(serverUrl)
         if (cleanUrl.isBlank()) {
@@ -47,7 +60,7 @@ class RemoteAuthRepository(
         return when (val res = networkGateway.get(action = "index", overrideServerUrl = cleanUrl)) {
             is ApiResult.Error -> res
             is ApiResult.Success -> {
-                val obj = res.data?.takeIf { it.isJsonObject }?.asJsonObject
+                val obj = res.data.asObjOrNull()
                 val compObj = obj?.getAsJsonObject("company")
 
                 val compName = obj.str("company_name")
@@ -61,7 +74,11 @@ class RemoteAuthRepository(
                     .ifBlank { "indonesia" }
                 val logoUrl = obj.str("logo_url")
                     .ifBlank { compObj.str("logo_url") }
-                val version = obj.str("version").ifBlank { "3.0.0" }
+                val version = obj.str("version").ifBlank { "3.1.0" }
+                val maintMode = obj.boolVal("maintenance_mode") || compObj.boolVal("maintenance_mode")
+                val maintLogout = obj.boolVal("maintenance_mode_logout") || compObj.boolVal("maintenance_mode_logout")
+                val maintDate = obj.str("maintenance_date").ifBlank { compObj.str("maintenance_date") }
+                val compPhone = compObj.str("phone").ifBlank { obj.str("phone") }
 
                 sessionStorage.updateServerPreview(
                     serverUrl = cleanUrl,
@@ -78,7 +95,11 @@ class RemoteAuthRepository(
                         currencyCode = currCode,
                         language = srvLang,
                         logoUrl = logoUrl,
-                        apiVersion = version
+                        apiVersion = version,
+                        maintenanceMode = maintMode,
+                        maintenanceForceLogout = maintLogout,
+                        maintenanceDate = maintDate,
+                        companyPhone = compPhone
                     ),
                     message = res.message
                 )
@@ -136,7 +157,7 @@ class RemoteAuthRepository(
         return when (response) {
             is ApiResult.Error -> response
             is ApiResult.Success -> {
-                val obj = response.data?.takeIf { it.isJsonObject }?.asJsonObject
+                val obj = response.data.asObjOrNull()
                 val token = obj.str("token").ifBlank { obj.str("native_token") }
                 if (token.isBlank()) {
                     return ApiResult.Error(
@@ -199,8 +220,10 @@ class RemoteAuthRepository(
         }
     }
 
-    override suspend fun switchSavedServer(profileId: String): ServerProfile? =
-        sessionStorage.switchSavedServer(profileId)
+    override suspend fun switchSavedServer(profileId: String): ServerProfile? {
+        networkGateway.clearMaintenanceState()
+        return sessionStorage.switchSavedServer(profileId)
+    }
 
     override suspend fun removeSavedServer(profileId: String) {
         sessionStorage.removeSavedServer(profileId)
@@ -211,15 +234,7 @@ class RemoteAuthRepository(
     }
 
     override suspend fun logout() {
+        networkGateway.clearMaintenanceState()
         sessionStorage.clearActiveToken()
-    }
-
-    private fun JsonObject?.str(key: String): String {
-        if (this == null || !has(key) || get(key).isJsonNull) return ""
-        return try {
-            get(key).asString.trim()
-        } catch (_: Exception) {
-            ""
-        }
     }
 }
