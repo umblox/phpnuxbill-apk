@@ -7,17 +7,18 @@ import com.phpnuxbill.mobile.core.datastore.DataStoreSessionStorage
 import com.phpnuxbill.mobile.core.datastore.SessionStorage
 import com.phpnuxbill.mobile.core.i18n.AppLanguage
 import com.phpnuxbill.mobile.core.model.ApiResult
+import com.phpnuxbill.mobile.core.model.MaintenanceInfo
 import com.phpnuxbill.mobile.core.model.ServerProfile
 import com.phpnuxbill.mobile.core.model.SessionState
 import com.phpnuxbill.mobile.core.model.UserRole
 import com.phpnuxbill.mobile.feature.auth.data.AuthRepository
 import com.phpnuxbill.mobile.feature.auth.model.LoginUiState
-import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -41,6 +42,11 @@ class AuthViewModel(
             started = SharingStarted.Eagerly,
             initialValue = SessionState()
         )
+
+    val maintenanceState: StateFlow<MaintenanceInfo?> = authRepository.maintenanceState
+
+    private val _isRecheckingMaintenance = MutableStateFlow(false)
+    val isRecheckingMaintenance: StateFlow<Boolean> = _isRecheckingMaintenance.asStateFlow()
 
     private val _uiState = MutableStateFlow(LoginUiState())
     val uiState: StateFlow<LoginUiState> = _uiState.asStateFlow()
@@ -67,12 +73,17 @@ class AuthViewModel(
     }
 
     fun onServerUrlChanged(newUrl: String) {
+        authRepository.clearMaintenanceState()
         _uiState.update {
             it.copy(
                 serverUrl = newUrl,
                 isServerVerified = false,
                 serverStatusMessage = null,
-                errorMessage = null
+                errorMessage = null,
+                isServerInMaintenance = false,
+                maintenanceForceLogout = false,
+                maintenanceDate = "",
+                companyPhone = ""
             )
         }
     }
@@ -122,7 +133,11 @@ class AuthViewModel(
                             companyName = res.data.companyName,
                             currencyCode = res.data.currencyCode,
                             serverLogoUrl = res.data.logoUrl,
-                            serverStatusMessage = res.message.ifBlank { res.data.companyName }
+                            serverStatusMessage = res.message.ifBlank { res.data.companyName },
+                            isServerInMaintenance = res.data.maintenanceMode,
+                            maintenanceForceLogout = res.data.maintenanceForceLogout,
+                            maintenanceDate = res.data.maintenanceDate,
+                            companyPhone = res.data.companyPhone
                         )
                     }
                 }
@@ -131,6 +146,9 @@ class AuthViewModel(
                         it.copy(
                             isCheckingServer = false,
                             isServerVerified = false,
+                            isServerInMaintenance = false,
+                            maintenanceForceLogout = false,
+                            maintenanceDate = "",
                             errorMessage = res.message
                         )
                     }
@@ -141,6 +159,7 @@ class AuthViewModel(
 
     fun onSelectSavedServer(profile: ServerProfile) {
         viewModelScope.launch {
+            authRepository.clearMaintenanceState()
             if (profile.token.isNotBlank()) {
                 authRepository.switchSavedServer(profile.id)
             } else {
@@ -160,6 +179,10 @@ class AuthViewModel(
                         username = profile.username,
                         selectedRole = profile.role,
                         isServerVerified = true,
+                        isServerInMaintenance = false,
+                        maintenanceForceLogout = false,
+                        maintenanceDate = "",
+                        companyPhone = "",
                         errorMessage = null
                     )
                 }
@@ -200,15 +223,73 @@ class AuthViewModel(
                     }
                 }
                 is ApiResult.Error -> {
-                    _uiState.update {
-                        it.copy(
-                            isSubmitting = false,
-                            errorMessage = res.message
-                        )
+                    if (res.isMaintenance) {
+                        val maint = res.maintenance
+                        _uiState.update {
+                            it.copy(
+                                isSubmitting = false,
+                                errorMessage = null,
+                                isServerInMaintenance = true,
+                                maintenanceForceLogout = maint?.forceLogout ?: it.maintenanceForceLogout,
+                                maintenanceDate = maint?.maintenanceDate.orEmpty().ifBlank { it.maintenanceDate },
+                                companyPhone = maint?.companyPhone.orEmpty().ifBlank { it.companyPhone }
+                            )
+                        }
+                    } else {
+                        _uiState.update {
+                            it.copy(
+                                isSubmitting = false,
+                                errorMessage = res.message
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+
+    fun onRecheckMaintenance(overrideServerUrl: String? = null) {
+        if (_isRecheckingMaintenance.value) return
+        val targetUrl = overrideServerUrl
+            ?.takeIf { it.isNotBlank() }
+            ?: maintenanceState.value?.serverUrl?.takeIf { it.isNotBlank() }
+            ?: sessionState.value.activeServerUrl.takeIf { it.isNotBlank() }
+            ?: _uiState.value.serverUrl
+
+        if (targetUrl.isBlank()) return
+
+        viewModelScope.launch {
+            _isRecheckingMaintenance.value = true
+            try {
+                when (val res = authRepository.probeServer(targetUrl)) {
+                    is ApiResult.Success -> {
+                        if (!res.data.maintenanceMode) {
+                            authRepository.clearMaintenanceState()
+                        }
+                        _uiState.update {
+                            it.copy(
+                                isServerVerified = true,
+                                serverUrl = res.data.serverUrl,
+                                companyName = res.data.companyName,
+                                currencyCode = res.data.currencyCode,
+                                serverLogoUrl = res.data.logoUrl,
+                                isServerInMaintenance = res.data.maintenanceMode,
+                                maintenanceForceLogout = res.data.maintenanceForceLogout,
+                                maintenanceDate = res.data.maintenanceDate,
+                                companyPhone = res.data.companyPhone
+                            )
+                        }
+                    }
+                    is ApiResult.Error -> Unit
+                }
+            } finally {
+                _isRecheckingMaintenance.value = false
+            }
+        }
+    }
+
+    fun onDismissMaintenance() {
+        authRepository.clearMaintenanceState()
     }
 
     fun onLogout() {
