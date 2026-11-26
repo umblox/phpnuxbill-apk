@@ -9,7 +9,11 @@ data class ServerInfoResult(
     val currencyCode: String,
     val language: String,
     val logoUrl: String,
-    val apiVersion: String
+    val apiVersion: String,
+    val maintenanceMode: Boolean = false,
+    val maintenanceForceLogout: Boolean = false,
+    val maintenanceDate: String = "",
+    val companyPhone: String = ""
 )
 
 data class LoginResult(
@@ -38,5 +42,9 @@ data class LoginUiState(
     val serverStatusMessage: String? = null,
     val isSubmitting: Boolean = false,
     val errorMessage: String? = null,
-    val savedServers: List<ServerProfile> = emptyList()
+    val savedServers: List<ServerProfile> = emptyList(),
+    val isServerInMaintenance: Boolean = false,
+    val maintenanceForceLogout: Boolean = false,
+    val maintenanceDate: String = "",
+    val companyPhone: String = ""
 )
