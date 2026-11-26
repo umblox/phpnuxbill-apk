@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -27,14 +28,20 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Backup
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Restore
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -59,6 +66,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -75,6 +83,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.phpnuxbill.mobile.BuildConfig
+import com.phpnuxbill.mobile.core.auth.AdminLevel
+import com.phpnuxbill.mobile.core.auth.AdminRolePolicy
 import com.phpnuxbill.mobile.core.i18n.LocalAppStrings
 import com.phpnuxbill.mobile.core.model.AppThemeMode
 import com.phpnuxbill.mobile.core.model.SessionState
@@ -86,15 +96,23 @@ import com.phpnuxbill.mobile.core.ui.components.ErrorStateView
 import com.phpnuxbill.mobile.core.ui.components.LanguageToggleChip
 import com.phpnuxbill.mobile.core.ui.components.LoadingStateView
 import com.phpnuxbill.mobile.core.ui.components.StatusBadge
+import com.phpnuxbill.mobile.feature.operations.model.ChangePasswordState
 import com.phpnuxbill.mobile.feature.operations.model.OperationsLabels
 import com.phpnuxbill.mobile.feature.operations.model.StaffFormState
+import com.phpnuxbill.mobile.feature.operations.model.StaffUserItem
+import com.phpnuxbill.mobile.feature.operations.model.WebServerSettings
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsSystemScreen(
     viewModel: OperationsViewModel,
     session: SessionState,
-    onOpenDrawer: () -> Unit
+    onOpenDrawer: () -> Unit,
+    onWebSettingsChanged: () -> Unit = {}
 ) {
     val webSettings by viewModel.webSettings.collectAsStateWithLifecycle()
     val notifTemplates by viewModel.notifTemplates.collectAsStateWithLifecycle()
@@ -106,14 +124,38 @@ fun SettingsSystemScreen(
     val bannerMessage by viewModel.bannerMessage.collectAsStateWithLifecycle()
 
     val strings = LocalAppStrings.current
+    val isEn = strings.langCode == "en"
     val labels = remember(strings) { OperationsLabels(strings) }
     val snackbarHostState = remember { SnackbarHostState() }
-    var selectedTab by remember { mutableIntStateOf(0) }
+
+    val effectiveLevel = remember(session.userType) {
+        AdminLevel.fromUserType(session.userType)
+    }
+    val canManageSystem = AdminRolePolicy.canManageSystemSettings(effectiveLevel)
+    val canBackupDb = AdminRolePolicy.canBackupDatabase(effectiveLevel)
+    val allowedStaffRoles = remember(effectiveLevel) {
+        when (effectiveLevel) {
+            AdminLevel.SUPER_ADMIN -> listOf("SuperAdmin", "Admin", "Report", "Agent", "Sales")
+            AdminLevel.ADMIN -> listOf("Report", "Agent", "Sales")
+            AdminLevel.AGENT -> listOf("Sales")
+            else -> emptyList()
+        }
+    }
+
+    var selectedTab by remember(canManageSystem) { mutableIntStateOf(if (canManageSystem) 0 else 2) }
+    var wasSavingWebSettings by remember { mutableStateOf(false) }
 
     val logoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) viewModel.onCustomLogoSelectedFromGallery(uri)
+    }
+
+    LaunchedEffect(webSettings.isSaving) {
+        if (wasSavingWebSettings && !webSettings.isSaving) {
+            onWebSettingsChanged()
+        }
+        wasSavingWebSettings = webSettings.isSaving
     }
 
     LaunchedEffect(bannerMessage) {
@@ -122,28 +164,51 @@ fun SettingsSystemScreen(
         viewModel.clearBanner()
     }
 
-LaunchedEffect(selectedTab) {
-    when (selectedTab) {
-        0 -> viewModel.ensureWebSettingsLoaded()
-        1 -> if (notifTemplates.isEmpty()) viewModel.loadNotificationTemplates()
-        2 -> viewModel.loadStaffList()
-        3 -> viewModel.loadDbStatusAndLogs()
+    LaunchedEffect(selectedTab, canManageSystem) {
+        if (!canManageSystem) {
+            viewModel.loadStaffList()
+        } else {
+            when (selectedTab) {
+                0 -> viewModel.ensureWebSettingsLoaded()
+                1 -> if (notifTemplates.isEmpty()) viewModel.loadNotificationTemplates()
+                2 -> viewModel.loadStaffList()
+                3 -> viewModel.loadDbStatusAndLogs()
+            }
+        }
     }
-}
-BackHandler(enabled = staffForm.isOpen) {
-    viewModel.closeStaffForm()
-}
+
+    // Pastikan role default form staf selalu sesuai RBAC level admin yang login (khususnya Agent -> Sales)
+    LaunchedEffect(staffForm.isOpen, staffForm.isEdit, allowedStaffRoles) {
+        if (staffForm.isOpen && allowedStaffRoles.isNotEmpty()) {
+            val isAllowed = allowedStaffRoles.any { it.equals(staffForm.userType, ignoreCase = true) }
+            if (!isAllowed) {
+                val fallbackRole = if (allowedStaffRoles.contains("Sales")) "Sales" else allowedStaffRoles.first()
+                viewModel.updateStaffForm { it.copy(userType = fallbackRole) }
+            }
+        }
+    }
+
+    BackHandler(enabled = staffForm.isOpen) {
+        viewModel.closeStaffForm()
+    }
 
     // Sub-layar penuh: Tambah / Edit Akun Staf
     if (staffForm.isOpen) {
         FullScreenStaffForm(
             form = staffForm,
+            allowedRoles = allowedStaffRoles,
             labels = labels,
             onUpdate = viewModel::updateStaffForm,
             onSubmit = viewModel::submitStaffForm,
             onClose = viewModel::closeStaffForm
         )
         return
+    }
+
+    val screenTitle = if (!canManageSystem && effectiveLevel == AdminLevel.AGENT) {
+        if (isEn) "Sales Staff" else "Staf Sales"
+    } else {
+        strings.menuSettings
     }
 
     Scaffold(
@@ -154,7 +219,7 @@ BackHandler(enabled = staffForm.isOpen) {
                 },
                 title = {
                     Column {
-                        Text(strings.menuSettings, style = MaterialTheme.typography.titleLarge)
+                        Text(screenTitle, style = MaterialTheme.typography.titleLarge)
                         Text(
                             text = session.effectiveCompanyName,
                             style = MaterialTheme.typography.labelMedium,
@@ -165,11 +230,15 @@ BackHandler(enabled = staffForm.isOpen) {
                 actions = {
                     IconButton(
                         onClick = {
-                            when (selectedTab) {
-                                0 -> viewModel.loadWebSettings()
-                                1 -> viewModel.loadNotificationTemplates()
-                                2 -> viewModel.loadStaffList()
-                                3 -> viewModel.loadDbStatusAndLogs()
+                            if (!canManageSystem) {
+                                viewModel.loadStaffList()
+                            } else {
+                                when (selectedTab) {
+                                    0 -> viewModel.loadWebSettings()
+                                    1 -> viewModel.loadNotificationTemplates()
+                                    2 -> viewModel.loadStaffList()
+                                    3 -> viewModel.loadDbStatusAndLogs()
+                                }
                             }
                         }
                     ) {
@@ -187,29 +256,33 @@ BackHandler(enabled = staffForm.isOpen) {
                 .padding(innerPadding)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            val tabs = listOf(
-                labels.tabGeneralSettings,
-                labels.tabNotifTemplates,
-                labels.tabStaffSecurity,
-                labels.tabDbLogs
-            )
-            PrimaryScrollableTabRow(
-                selectedTabIndex = selectedTab,
-                edgePadding = 16.dp,
-                containerColor = MaterialTheme.colorScheme.surface
-            ) {
-                tabs.forEachIndexed { idx, title ->
-                    Tab(
-                        selected = selectedTab == idx,
-                        onClick = { selectedTab = idx },
-                        text = { Text(title, maxLines = 1) }
-                    )
+            if (canManageSystem) {
+                val tabs = listOf(
+                    labels.tabGeneralSettings,
+                    labels.tabNotifTemplates,
+                    labels.tabStaffSecurity,
+                    labels.tabDbLogs
+                )
+                PrimaryScrollableTabRow(
+                    selectedTabIndex = selectedTab,
+                    edgePadding = 16.dp,
+                    containerColor = MaterialTheme.colorScheme.surface
+                ) {
+                    tabs.forEachIndexed { idx, title ->
+                        Tab(
+                            selected = selectedTab == idx,
+                            onClick = { selectedTab = idx },
+                            text = { Text(title, maxLines = 1) }
+                        )
+                    }
                 }
             }
 
-            when (selectedTab) {
+            val effectiveTab = if (canManageSystem) selectedTab else 2
+
+            when (effectiveTab) {
                 // =============================================================
-                // TAB 0: PREFERENSI APLIKASI, WEB CONFIG & TES GATEWAY
+                // TAB 0: MAINTENANCE MODE, PREFERENSI APLIKASI, WEB CONFIG & TES GATEWAY
                 // =============================================================
                 0 -> {
                     var testChannel by remember { mutableStateOf("wa") }
@@ -222,7 +295,16 @@ BackHandler(enabled = staffForm.isOpen) {
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        // Kartu 1: Preferensi Aplikasi (Logo Galeri, Bahasa ID/EN, Tema)
+                        // Kartu 1: Kontrol Khusus Maintenance Mode (selaras ui/ui/admin/settings/maintenance-mode.tpl)
+                        MaintenanceModeControlCard(
+                            webSettings = webSettings,
+                            labels = labels,
+                            isEn = isEn,
+                            onUpdate = viewModel::updateWebSettings,
+                            onSave = viewModel::submitWebSettings
+                        )
+
+                        // Kartu 2: Preferensi Aplikasi (Logo Galeri, Bahasa ID/EN, Tema)
                         SettingsSectionBox(title = strings.appPreferences) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -296,7 +378,7 @@ BackHandler(enabled = staffForm.isOpen) {
                             }
                         }
 
-                        // Kartu 2: Konfigurasi Server Web Billing (tbl_appconfig)
+                        // Kartu 3: Konfigurasi Server Web Billing (tbl_appconfig)
                         SettingsSectionBox(title = labels.webBillingConfigTitle) {
                             OutlinedTextField(
                                 value = webSettings.companyName,
@@ -371,38 +453,6 @@ BackHandler(enabled = staffForm.isOpen) {
                                 modifier = Modifier.fillMaxWidth()
                             )
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(labels.maintenanceModeLabel, modifier = Modifier.weight(1f))
-                                Switch(
-                                    checked = webSettings.maintenanceMode,
-                                    onCheckedChange = { c -> viewModel.updateWebSettings { it.copy(maintenanceMode = c) } }
-                                )
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(labels.forceLogoutLabel, modifier = Modifier.weight(1f))
-                                Switch(
-                                    checked = webSettings.maintenanceForceLogout,
-                                    onCheckedChange = { c -> viewModel.updateWebSettings { it.copy(maintenanceForceLogout = c) } }
-                                )
-                            }
-                            if (webSettings.maintenanceMode) {
-                                OutlinedTextField(
-                                    value = webSettings.maintenanceDate,
-                                    onValueChange = { v -> viewModel.updateWebSettings { it.copy(maintenanceDate = v) } },
-                                    label = { Text(labels.maintenanceDateLabel) },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-
                             Button(
                                 onClick = viewModel::submitWebSettings,
                                 enabled = !webSettings.isSaving,
@@ -419,7 +469,7 @@ BackHandler(enabled = staffForm.isOpen) {
                             }
                         }
 
-                        // Kartu 3: Tes Gateway Notifikasi (WA / SMS / Email / Telegram)
+                        // Kartu 4: Tes Gateway Notifikasi (WA / SMS / Email / Telegram)
                         SettingsSectionBox(title = labels.testGatewayTitle) {
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 listOf("wa" to "WA", "sms" to "SMS", "email" to "Email", "tg" to "Telegram").forEach { (ch, l) ->
@@ -539,106 +589,24 @@ BackHandler(enabled = staffForm.isOpen) {
                 // TAB 2: MANAJEMEN STAF & GANTI KATA SANDI ADMIN
                 // =============================================================
                 2 -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        item {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("Admin / Staff", style = MaterialTheme.typography.titleMedium)
-                                Button(
-                                    onClick = { viewModel.openStaffForm(null) },
-                                    shape = RoundedCornerShape(10.dp)
-                                ) {
-                                    Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(labels.addStaffBtn)
-                                }
-                            }
-                        }
-
-                        when (val st = staffListState) {
-                            is UiState.Idle, is UiState.Loading -> item { LoadingStateView() }
-                            is UiState.Error -> item { ErrorStateView(message = st.message, onRetry = viewModel::loadStaffList) }
-                            is UiState.Success -> {
-                                items(st.data, key = { it.id }) { staff ->
-                                    ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
-                                        Row(
-                                            modifier = Modifier.padding(14.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text("${staff.fullname} (@${staff.username})", fontWeight = FontWeight.Bold)
-                                                Text(
-                                                    text = "${staff.userType} • ${staff.phone.ifBlank { "-" }}",
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                            StatusBadge(
-                                                text = staff.status,
-                                                tone = if (staff.status.equals("Active", true)) BadgeTone.SUCCESS else BadgeTone.DANGER
-                                            )
-                                            IconButton(onClick = { viewModel.openStaffForm(staff) }) {
-                                                Icon(Icons.Outlined.Edit, contentDescription = strings.edit)
-                                            }
-                                            if (!staff.username.equals(session.username, true)) {
-                                                IconButton(onClick = { viewModel.deleteStaff(staff.id) }) {
-                                                    Icon(Icons.Outlined.Delete, contentDescription = strings.delete, tint = MaterialTheme.colorScheme.error)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        item {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            SettingsSectionBox(title = labels.changePasswordTitle) {
-                                OutlinedTextField(
-                                    value = changePassState.currentPassword,
-                                    onValueChange = { v -> viewModel.updateChangePassword { it.copy(currentPassword = v) } },
-                                    label = { Text(labels.currentPassLabel) },
-                                    visualTransformation = PasswordVisualTransformation(),
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                OutlinedTextField(
-                                    value = changePassState.newPassword,
-                                    onValueChange = { v -> viewModel.updateChangePassword { it.copy(newPassword = v) } },
-                                    label = { Text(labels.newPassLabel) },
-                                    visualTransformation = PasswordVisualTransformation(),
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                OutlinedTextField(
-                                    value = changePassState.confirmPassword,
-                                    onValueChange = { v -> viewModel.updateChangePassword { it.copy(confirmPassword = v) } },
-                                    label = { Text(labels.confirmPassLabel) },
-                                    visualTransformation = PasswordVisualTransformation(),
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Button(
-                                    onClick = viewModel::submitChangePassword,
-                                    enabled = !changePassState.isSaving &&
-                                        changePassState.currentPassword.isNotBlank() &&
-                                        changePassState.newPassword.length >= 6,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Text(strings.save)
-                                }
-                            }
-                        }
-                    }
+                    StaffAndSecurityTabContent(
+                        staffListState = staffListState,
+                        changePassState = changePassState,
+                        session = session,
+                        canDeleteStaff = canManageSystem,
+                        sectionTitle = if (!canManageSystem) {
+                            if (isEn) "Sales Team" else "Tim Sales"
+                        } else {
+                            "Admin / Staff"
+                        },
+                        labels = labels,
+                        onAddStaff = { viewModel.openStaffForm(null) },
+                        onEditStaff = { staff -> viewModel.openStaffForm(staff) },
+                        onDeleteStaff = viewModel::deleteStaff,
+                        onReloadStaff = viewModel::loadStaffList,
+                        onUpdateChangePassword = viewModel::updateChangePassword,
+                        onSubmitChangePassword = viewModel::submitChangePassword
+                    )
                 }
 
                 // =============================================================
@@ -650,17 +618,19 @@ BackHandler(enabled = staffForm.isOpen) {
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        item {
-                            Button(
-                                onClick = viewModel::triggerDbBackup,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Icon(Icons.Outlined.Backup, contentDescription = null)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(labels.backupDbNowBtn)
+                        if (canBackupDb) {
+                            item {
+                                Button(
+                                    onClick = viewModel::triggerDbBackup,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(Icons.Outlined.Backup, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(labels.backupDbNowBtn)
+                                }
                             }
                         }
 
@@ -722,6 +692,326 @@ BackHandler(enabled = staffForm.isOpen) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MaintenanceModeControlCard(
+    webSettings: WebServerSettings,
+    labels: OperationsLabels,
+    isEn: Boolean,
+    onUpdate: ((WebServerSettings) -> WebServerSettings) -> Unit,
+    onSave: () -> Unit
+) {
+    val strings = LocalAppStrings.current
+    var showDatePicker by remember { mutableStateOf(false) }
+
+    if (showDatePicker) {
+        val initialMillis = remember(webSettings.maintenanceDate) {
+            parseUtcDateMillis(webSettings.maintenanceDate)
+        }
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        datePickerState.selectedDateMillis?.let { millis ->
+                            onUpdate { it.copy(maintenanceDate = formatUtcDateString(millis)) }
+                        }
+                        showDatePicker = false
+                    }
+                ) {
+                    Text(strings.confirm)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text(strings.cancel)
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    val borderColor = if (webSettings.maintenanceMode) {
+        MaterialTheme.colorScheme.error.copy(alpha = 0.45f)
+    } else {
+        MaterialTheme.colorScheme.outlineVariant
+    }
+
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, borderColor),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.WarningAmber,
+                        contentDescription = null,
+                        tint = if (webSettings.maintenanceMode) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = if (isEn) "Maintenance Mode" else "Mode Pemeliharaan",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (webSettings.maintenanceMode) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                    )
+                }
+                StatusBadge(
+                    text = if (webSettings.maintenanceMode) {
+                        if (isEn) "ACTIVE" else "AKTIF"
+                    } else {
+                        if (isEn) "OFF" else "NONAKTIF"
+                    },
+                    tone = if (webSettings.maintenanceMode) BadgeTone.DANGER else BadgeTone.SUCCESS
+                )
+            }
+
+            Text(
+                text = if (isEn) {
+                    "Blocks customer login and portal access while Admin & Staff remain able to operate normally."
+                } else {
+                    "Menutup akses login & portal pelanggan sementara, sedangkan Admin & Staf tetap dapat beroperasi normal."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(labels.maintenanceModeLabel, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                }
+                Switch(
+                    checked = webSettings.maintenanceMode,
+                    onCheckedChange = { c -> onUpdate { it.copy(maintenanceMode = c) } }
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(labels.forceLogoutLabel, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                    Text(
+                        text = if (isEn) {
+                            "Signs out currently active customer sessions"
+                        } else {
+                            "Keluarkan otomatis sesi pelanggan yang sedang login"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = webSettings.maintenanceForceLogout,
+                    onCheckedChange = { c -> onUpdate { it.copy(maintenanceForceLogout = c) } }
+                )
+            }
+
+            // Pemilih Tanggal Estimasi Selesai (DatePickerDialog Material 3, format YYYY-MM-DD)
+            OutlinedTextField(
+                value = webSettings.maintenanceDate,
+                onValueChange = { v -> onUpdate { it.copy(maintenanceDate = v) } },
+                label = { Text(labels.maintenanceDateLabel) },
+                placeholder = { Text("YYYY-MM-DD") },
+                singleLine = true,
+                readOnly = true,
+                leadingIcon = {
+                    IconButton(onClick = { showDatePicker = true }) {
+                        Icon(Icons.Outlined.CalendarMonth, contentDescription = null)
+                    }
+                },
+                trailingIcon = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (webSettings.maintenanceDate.isNotBlank()) {
+                            IconButton(onClick = { onUpdate { it.copy(maintenanceDate = "") } }) {
+                                Icon(Icons.Outlined.Clear, contentDescription = strings.delete)
+                            }
+                        }
+                        TextButton(onClick = { showDatePicker = true }) {
+                            Text(if (isEn) "Pick" else "Pilih")
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showDatePicker = true }
+            )
+
+            Button(
+                onClick = onSave,
+                enabled = !webSettings.isSaving,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = if (webSettings.maintenanceMode) {
+                    ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                } else {
+                    ButtonDefaults.buttonColors()
+                }
+            ) {
+                if (webSettings.isSaving) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = if (webSettings.maintenanceMode) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary
+                    )
+                } else {
+                    Text(
+                        text = if (isEn) "Save Maintenance Status" else "Simpan Status Maintenance",
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StaffAndSecurityTabContent(
+    staffListState: UiState<List<StaffUserItem>>,
+    changePassState: ChangePasswordState,
+    session: SessionState,
+    canDeleteStaff: Boolean,
+    sectionTitle: String,
+    labels: OperationsLabels,
+    onAddStaff: () -> Unit,
+    onEditStaff: (StaffUserItem) -> Unit,
+    onDeleteStaff: (Int) -> Unit,
+    onReloadStaff: () -> Unit,
+    onUpdateChangePassword: ((ChangePasswordState) -> ChangePasswordState) -> Unit,
+    onSubmitChangePassword: () -> Unit
+) {
+    val strings = LocalAppStrings.current
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(sectionTitle, style = MaterialTheme.typography.titleMedium)
+                Button(
+                    onClick = onAddStaff,
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(labels.addStaffBtn)
+                }
+            }
+        }
+
+        when (val st = staffListState) {
+            is UiState.Idle, is UiState.Loading -> item { LoadingStateView() }
+            is UiState.Error -> item { ErrorStateView(message = st.message, onRetry = onReloadStaff) }
+            is UiState.Success -> {
+                items(st.data, key = { it.id }) { staff ->
+                    ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("${staff.fullname} (@${staff.username})", fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = "${staff.userType} • ${staff.phone.ifBlank { "-" }}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            StatusBadge(
+                                text = staff.status,
+                                tone = if (staff.status.equals("Active", true)) BadgeTone.SUCCESS else BadgeTone.DANGER
+                            )
+                            IconButton(onClick = { onEditStaff(staff) }) {
+                                Icon(Icons.Outlined.Edit, contentDescription = strings.edit)
+                            }
+                            if (canDeleteStaff && !staff.username.equals(session.username, true)) {
+                                IconButton(onClick = { onDeleteStaff(staff.id) }) {
+                                    Icon(Icons.Outlined.Delete, contentDescription = strings.delete, tint = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(6.dp))
+            SettingsSectionBox(title = labels.changePasswordTitle) {
+                OutlinedTextField(
+                    value = changePassState.currentPassword,
+                    onValueChange = { v -> onUpdateChangePassword { it.copy(currentPassword = v) } },
+                    label = { Text(labels.currentPassLabel) },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = changePassState.newPassword,
+                    onValueChange = { v -> onUpdateChangePassword { it.copy(newPassword = v) } },
+                    label = { Text(labels.newPassLabel) },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = changePassState.confirmPassword,
+                    onValueChange = { v -> onUpdateChangePassword { it.copy(confirmPassword = v) } },
+                    label = { Text(labels.confirmPassLabel) },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Button(
+                    onClick = onSubmitChangePassword,
+                    enabled = !changePassState.isSaving &&
+                        changePassState.currentPassword.isNotBlank() &&
+                        changePassState.newPassword.length >= 6,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(strings.save)
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun SettingsSectionBox(
     title: String,
@@ -743,12 +1033,15 @@ private fun SettingsSectionBox(
 @Composable
 private fun FullScreenStaffForm(
     form: StaffFormState,
+    allowedRoles: List<String>,
     labels: OperationsLabels,
     onUpdate: ((StaffFormState) -> StaffFormState) -> Unit,
     onSubmit: () -> Unit,
     onClose: () -> Unit
 ) {
     val strings = LocalAppStrings.current
+    val roleChoices = allowedRoles.ifEmpty { listOf("Sales") }
+
     AppScreenScaffold(
         title = if (form.isEdit) strings.edit else labels.addStaffBtn,
         onBack = onClose,
@@ -806,7 +1099,7 @@ private fun FullScreenStaffForm(
                 modifier = Modifier.fillMaxWidth()
             )
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("Admin", "Report", "Agent", "Sales").forEach { role ->
+                roleChoices.forEach { role ->
                     FilterChip(
                         selected = form.userType.equals(role, true),
                         onClick = { onUpdate { it.copy(userType = role) } },
@@ -830,4 +1123,22 @@ private fun FullScreenStaffForm(
             )
         }
     }
+}
+
+private fun parseUtcDateMillis(rawDate: String): Long? {
+    val clean = rawDate.trim()
+    if (clean.isBlank()) return null
+    val dateOnly = clean.take(10)
+    return runCatching {
+        SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+            isLenient = false
+        }.parse(dateOnly)?.time
+    }.getOrNull()
+}
+
+private fun formatUtcDateString(utcMillis: Long): String {
+    return SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }.format(Date(utcMillis))
 }
