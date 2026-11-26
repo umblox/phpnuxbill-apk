@@ -91,7 +91,9 @@ class RemoteDashboardRepository(
                     disableVoucher = flagsObj?.boolVal("disable_voucher") ?: false,
                     enableCoupons = flagsObj?.boolVal("enable_coupons") ?: false,
                     radiusEnable = flagsObj?.boolVal("radius_enable") ?: false,
-                    maintenanceMode = flagsObj?.boolVal("maintenance_mode") ?: false
+                    maintenanceMode = flagsObj?.boolVal("maintenance_mode") ?: false,
+                    maintenanceForceLogout = flagsObj?.boolVal("maintenance_mode_logout") ?: false,
+                    maintenanceDate = flagsObj.str("maintenance_date")
                 )
 
                 val enabledWidgets = root?.getAsJsonArray("enabled_widgets")
@@ -169,7 +171,7 @@ class RemoteDashboardRepository(
             is ApiResult.Success -> ApiResult.Success(data = res.message, message = res.message)
         }
     }
-    
+
     private fun parseMonthlyRegistered(arr: JsonArray?): List<MonthlyCountPoint> =
         arr?.mapNotNull { el ->
             val o = el.asObjOrNull() ?: return@mapNotNull null
