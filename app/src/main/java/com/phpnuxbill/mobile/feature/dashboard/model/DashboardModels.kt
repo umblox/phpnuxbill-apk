@@ -15,7 +15,9 @@ data class AdminServerFlags(
     val disableVoucher: Boolean = false,
     val enableCoupons: Boolean = false,
     val radiusEnable: Boolean = false,
-    val maintenanceMode: Boolean = false
+    val maintenanceMode: Boolean = false,
+    val maintenanceForceLogout: Boolean = false,
+    val maintenanceDate: String = ""
 )
 
 data class ActiveServiceBreakdown(
@@ -137,6 +139,10 @@ class AdminDashboardLabels(strings: AppStrings) {
     val noExpiring = if (isEn) "No subscriptions expiring within 2 days." else "Tidak ada layanan yang jatuh tempo dalam 2 hari."
     val recentLogsTitle = if (isEn) "Recent System Activity" else "Aktivitas Sistem Terbaru"
     val maintenanceWarning = if (isEn) "Maintenance Mode is currently ON on the server." else "Mode Pemeliharaan (Maintenance) sedang AKTIF di server."
+    val manageMaintenanceBtn = if (isEn) "Manage / Turn Off" else "Kelola / Matikan"
+    val maintenanceEndPrefix = if (isEn) "Est. end" else "Estimasi selesai"
+    val maintenanceForceLogoutOn = if (isEn) "Force Logout: ON" else "Paksa Logout: AKTIF"
+    val maintenanceForceLogoutOff = if (isEn) "Force Logout: OFF" else "Paksa Logout: NONAKTIF"
     val roleSummaryReport = if (isEn) "Read-only monitoring & financial reports mode" else "Mode pantau & laporan keuangan (hanya baca)"
     val roleSummaryAgent = if (isEn) "Field operations, active customers & sales team" else "Operasional pelanggan aktif, voucher & tim sales"
     val roleSummarySales = if (isEn) "Customer registration, recharge & voucher sales" else "Registrasi pelanggan, isi ulang & penjualan voucher"
