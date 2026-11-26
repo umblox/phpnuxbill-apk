@@ -560,7 +560,14 @@ private fun AuthenticatedAdminShell(
                     key = "ops_$sessionKey",
                     factory = OperationsViewModel.Factory(container.operationsRepository, container.sessionStorage)
                 )
-                SettingsSystemScreen(viewModel = vm, session = session, onOpenDrawer = openDrawerFn)
+                SettingsSystemScreen(
+                    viewModel = vm,
+                    session = session,
+                    onOpenDrawer = openDrawerFn,
+                    onWebSettingsChanged = {
+                        dashboardVm.loadDashboard(isPullRefresh = true)
+                    }
+                )
             }
         }
     }
