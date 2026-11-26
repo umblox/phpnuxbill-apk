@@ -1,0 +1,49 @@
+# =========================================================================
+# Keystore & Kredensial Signing (WAJIB DIABAIKAN - JANGAN PERNAH DI-COMMIT)
+# =========================================================================
+*.jks
+*.keystore
+*.p12
+*.pfx
+keystore.properties
+app/keystore.properties
+
+# =========================================================================
+# Konfigurasi Lokal Perangkat / ACS IDE / Android Studio
+# =========================================================================
+local.properties
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+
+# =========================================================================
+# Build & Cache Gradle / Android
+# =========================================================================
+.gradle/
+build/
+app/build/
+output-apk/
+captures/
+.externalNativeBuild/
+.cxx/
+.navigation/
+*.ap_
+*.aab
+*.apk
+*.dex
+*.class
+*.log
+*.tmp
+*.bak
+*.swp
+*~
+
+# =========================================================================
+# Pengecualian Penting (WAJIB TETAP TER-TRACK UNTUK ACS IDE & CI)
+# =========================================================================
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+!gradlew
+!gradlew.bat
