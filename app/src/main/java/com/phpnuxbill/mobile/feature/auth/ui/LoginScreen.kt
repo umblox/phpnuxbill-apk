@@ -36,6 +36,7 @@ import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -57,6 +58,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -68,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.phpnuxbill.mobile.BuildConfig
+import com.phpnuxbill.mobile.core.datastore.DataStoreSessionStorage
 import com.phpnuxbill.mobile.core.i18n.LocalAppStrings
 import com.phpnuxbill.mobile.core.model.ServerProfile
 import com.phpnuxbill.mobile.core.model.UserRole
@@ -77,6 +80,8 @@ import com.phpnuxbill.mobile.core.ui.theme.BrandBlue600
 import com.phpnuxbill.mobile.core.ui.theme.BrandNavy900
 import com.phpnuxbill.mobile.core.ui.theme.StatusSuccessBgLight
 import com.phpnuxbill.mobile.core.ui.theme.StatusSuccessFgLight
+import com.phpnuxbill.mobile.core.ui.theme.StatusWarningBgLight
+import com.phpnuxbill.mobile.core.ui.theme.StatusWarningFgLight
 
 @Composable
 fun LoginScreen(
@@ -86,8 +91,10 @@ fun LoginScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val session by viewModel.sessionState.collectAsStateWithLifecycle()
     val strings = LocalAppStrings.current
+    val isEn = strings.langCode == "en"
     val focusManager = LocalFocusManager.current
     val scrollState = rememberScrollState()
+    val normalizedInputUrl = DataStoreSessionStorage.normalizeServerUrl(uiState.serverUrl)
 
     Box(
         modifier = modifier
@@ -144,7 +151,7 @@ fun LoginScreen(
                 text = uiState.companyName.ifBlank { "PHPNuxBill" },
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.ExtraBold,
-                color = androidx.compose.ui.graphics.Color.White,
+                color = Color.White,
                 textAlign = TextAlign.Center,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
@@ -155,7 +162,7 @@ fun LoginScreen(
             Text(
                 text = strings.appTagline,
                 style = MaterialTheme.typography.bodyMedium,
-                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f),
+                color = Color.White.copy(alpha = 0.85f),
                 textAlign = TextAlign.Center
             )
 
@@ -201,12 +208,20 @@ fun LoginScreen(
                             contentPadding = PaddingValues(vertical = 2.dp)
                         ) {
                             items(uiState.savedServers, key = { it.id }) { profile ->
+                                val normalizedProfileUrl = DataStoreSessionStorage.normalizeServerUrl(profile.serverUrl)
+                                val isChipSelected = normalizedInputUrl.isNotBlank() &&
+                                    normalizedProfileUrl.equals(normalizedInputUrl, ignoreCase = true) &&
+                                    (
+                                        profile.username.isBlank() ||
+                                            (
+                                                profile.username.equals(uiState.username.trim(), ignoreCase = true) &&
+                                                    profile.role == uiState.selectedRole
+                                                )
+                                        )
                                 SavedServerChip(
                                     profile = profile,
-                                    isSelected = profile.serverUrl.equals(
-                                        uiState.serverUrl.trimEnd('/'),
-                                        ignoreCase = true
-                                    ),
+                                    roleLabel = if (profile.role == UserRole.CUSTOMER) strings.roleCustomer else strings.roleAdmin,
+                                    isSelected = isChipSelected,
                                     onSelect = { viewModel.onSelectSavedServer(profile) },
                                     onDelete = { viewModel.onRemoveSavedServer(profile.id) }
                                 )
@@ -319,6 +334,57 @@ fun LoginScreen(
                                     )
                                 }
                             )
+                        }
+                    }
+
+                    // Banner Peringatan Maintenance Mode (Role-Aware dari hasil Cek Server)
+                    AnimatedVisibility(visible = uiState.isServerInMaintenance) {
+                        val dateSuffix = if (uiState.maintenanceDate.isNotBlank()) {
+                            if (isEn) "\nEst. completion: ${uiState.maintenanceDate}"
+                            else "\nEstimasi selesai: ${uiState.maintenanceDate}"
+                        } else {
+                            ""
+                        }
+                        val maintText = if (uiState.selectedRole == UserRole.ADMIN) {
+                            if (isEn) {
+                                "Maintenance Mode is active. Admin / Staff can still sign in and manage the system.$dateSuffix"
+                            } else {
+                                "Mode Maintenance sedang aktif. Admin / Staf tetap dapat masuk dan mengelola sistem.$dateSuffix"
+                            }
+                        } else {
+                            if (isEn) {
+                                "Scheduled maintenance is currently in progress. Customer portal access is temporarily closed.$dateSuffix"
+                            } else {
+                                "Server sedang dalam pemeliharaan terjadwal. Akses portal pelanggan ditutup sementara.$dateSuffix"
+                            }
+                        }
+
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 12.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = StatusWarningBgLight,
+                            border = BorderStroke(1.dp, StatusWarningFgLight.copy(alpha = 0.25f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.WarningAmber,
+                                    contentDescription = null,
+                                    tint = StatusWarningFgLight,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = maintText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = StatusWarningFgLight,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                     }
 
@@ -458,6 +524,7 @@ fun LoginScreen(
 @Composable
 private fun SavedServerChip(
     profile: ServerProfile,
+    roleLabel: String,
     isSelected: Boolean,
     onSelect: () -> Unit,
     onDelete: () -> Unit
@@ -501,9 +568,11 @@ private fun SavedServerChip(
                 )
                 if (profile.username.isNotBlank()) {
                     Text(
-                        text = "@${profile.username}",
+                        text = "@${profile.username} • $roleLabel",
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
