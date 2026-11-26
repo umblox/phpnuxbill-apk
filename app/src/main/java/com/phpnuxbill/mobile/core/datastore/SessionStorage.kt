@@ -164,13 +164,19 @@ class DataStoreSessionStorage(
         serverLogoUrl: String
     ) {
         val cleanUrl = normalizeServerUrl(serverUrl)
+        val cleanUser = username.trim()
+        val cleanFull = fullname.trim().ifBlank { cleanUser }
+        val cleanType = userType.trim().ifBlank {
+            if (role == UserRole.CUSTOMER) "Customer" else "Admin"
+        }
+
         context.billingDataStore.edit { prefs ->
             prefs[Keys.ACTIVE_SERVER_URL] = cleanUrl
             prefs[Keys.TOKEN] = token.trim()
             prefs[Keys.ROLE] = role.apiValue
-            prefs[Keys.USERNAME] = username.trim()
-            prefs[Keys.FULLNAME] = fullname.trim().ifBlank { username.trim() }
-            prefs[Keys.USER_TYPE] = userType.trim()
+            prefs[Keys.USERNAME] = cleanUser
+            prefs[Keys.FULLNAME] = cleanFull
+            prefs[Keys.USER_TYPE] = cleanType
             if (companyName.isNotBlank()) prefs[Keys.COMPANY_NAME] = companyName.trim()
             if (currencyCode.isNotBlank()) prefs[Keys.CURRENCY_CODE] = currencyCode.trim()
             if (serverLogoUrl.isNotBlank()) prefs[Keys.SERVER_LOGO_URL] = serverLogoUrl.trim()
@@ -178,7 +184,7 @@ class DataStoreSessionStorage(
             val existing = parseServers(prefs[Keys.SAVED_SERVERS_JSON].orEmpty()).toMutableList()
             val idx = existing.indexOfFirst {
                 normalizeServerUrl(it.serverUrl) == cleanUrl &&
-                    (it.username.isBlank() || it.username.equals(username, ignoreCase = true))
+                    (it.username.isBlank() || (it.username.equals(cleanUser, ignoreCase = true) && it.role == role))
             }
             val updatedProfile = ServerProfile(
                 id = if (idx >= 0) existing[idx].id else UUID.randomUUID().toString(),
@@ -186,10 +192,12 @@ class DataStoreSessionStorage(
                 companyName = companyName.ifBlank { prefs[Keys.COMPANY_NAME] ?: "PHPNuxBill" },
                 currencyCode = currencyCode.ifBlank { prefs[Keys.CURRENCY_CODE] ?: "Rp." },
                 serverLogoUrl = serverLogoUrl.ifBlank { prefs[Keys.SERVER_LOGO_URL].orEmpty() },
-                username = username.trim(),
+                username = cleanUser,
                 role = role,
                 token = token.trim(),
-                lastUsedAt = System.currentTimeMillis()
+                lastUsedAt = System.currentTimeMillis(),
+                fullname = cleanFull,
+                userType = cleanType
             )
             if (idx >= 0) {
                 existing[idx] = updatedProfile
@@ -209,6 +217,10 @@ class DataStoreSessionStorage(
             prefs[Keys.CURRENCY_CODE] = target.currencyCode.ifBlank { "Rp." }
             prefs[Keys.SERVER_LOGO_URL] = target.serverLogoUrl
             prefs[Keys.USERNAME] = target.username
+            prefs[Keys.FULLNAME] = target.fullname.ifBlank { target.username }
+            prefs[Keys.USER_TYPE] = target.userType.ifBlank {
+                if (target.role == UserRole.CUSTOMER) "Customer" else "Admin"
+            }
             prefs[Keys.ROLE] = target.role.apiValue
             prefs[Keys.TOKEN] = target.token
         }
@@ -272,12 +284,17 @@ class DataStoreSessionStorage(
 
     override suspend fun clearActiveToken() {
         context.billingDataStore.edit { prefs ->
-            val currentUrl = prefs[Keys.ACTIVE_SERVER_URL].orEmpty()
+            val currentUrl = normalizeServerUrl(prefs[Keys.ACTIVE_SERVER_URL].orEmpty())
             val currentUser = prefs[Keys.USERNAME].orEmpty()
+            val currentRole = UserRole.fromString(prefs[Keys.ROLE] ?: "admin")
             prefs.remove(Keys.TOKEN)
 
             val updatedServers = parseServers(prefs[Keys.SAVED_SERVERS_JSON].orEmpty()).map {
-                if (normalizeServerUrl(it.serverUrl) == currentUrl && it.username == currentUser) {
+                if (
+                    normalizeServerUrl(it.serverUrl) == currentUrl &&
+                    it.username.equals(currentUser, ignoreCase = true) &&
+                    it.role == currentRole
+                ) {
                     it.copy(token = "")
                 } else {
                     it
@@ -291,7 +308,21 @@ class DataStoreSessionStorage(
         if (json.isBlank()) return emptyList()
         return try {
             val type = object : TypeToken<List<ServerProfile>>() {}.type
-            gson.fromJson<List<ServerProfile>>(json, type) ?: emptyList()
+            val raw = gson.fromJson<List<ServerProfile>>(json, type) ?: emptyList()
+            raw.map { p ->
+                p.copy(
+                    id = runCatching { p.id.ifBlank { UUID.randomUUID().toString() } }.getOrDefault(UUID.randomUUID().toString()),
+                    serverUrl = runCatching { p.serverUrl }.getOrDefault(""),
+                    companyName = runCatching { p.companyName.ifBlank { "PHPNuxBill" } }.getOrDefault("PHPNuxBill"),
+                    currencyCode = runCatching { p.currencyCode.ifBlank { "Rp." } }.getOrDefault("Rp."),
+                    serverLogoUrl = runCatching { p.serverLogoUrl }.getOrDefault(""),
+                    username = runCatching { p.username }.getOrDefault(""),
+                    role = runCatching { p.role }.getOrDefault(UserRole.ADMIN),
+                    token = runCatching { p.token }.getOrDefault(""),
+                    fullname = runCatching { p.fullname }.getOrDefault(""),
+                    userType = runCatching { p.userType }.getOrDefault("")
+                )
+            }
         } catch (_: Exception) {
             emptyList()
         }
@@ -309,6 +340,7 @@ class DataStoreSessionStorage(
             return url
                 .replace(Regex("/system/api\\.php.*$", RegexOption.IGNORE_CASE), "")
                 .replace(Regex("/index\\.php.*$", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("/?\\?_route=.*$", RegexOption.IGNORE_CASE), "")
                 .trimEnd('/')
         }
     }
