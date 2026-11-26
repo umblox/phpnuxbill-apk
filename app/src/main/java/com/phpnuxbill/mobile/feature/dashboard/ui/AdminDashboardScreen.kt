@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -37,18 +37,21 @@ import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Router
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SettingsInputAntenna
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material.icons.outlined.WifiTethering
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -88,6 +91,7 @@ import com.phpnuxbill.mobile.feature.dashboard.model.ActiveServiceBreakdown
 import com.phpnuxbill.mobile.feature.dashboard.model.AdminActivityLogItem
 import com.phpnuxbill.mobile.feature.dashboard.model.AdminDashboardLabels
 import com.phpnuxbill.mobile.feature.dashboard.model.AdminDestination
+import com.phpnuxbill.mobile.feature.dashboard.model.AdminServerFlags
 import com.phpnuxbill.mobile.feature.dashboard.model.DashboardData
 import com.phpnuxbill.mobile.feature.dashboard.model.ExpiringUserItem
 import com.phpnuxbill.mobile.feature.dashboard.model.PlanStockItem
@@ -200,32 +204,15 @@ fun AdminDashboardScreen(
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        // 1. Peringatan Mode Maintenance Server (jika aktif)
+                        // 1. Peringatan Mode Maintenance Server (selaras ui/ui/admin/header.tpl)
                         if (flags.maintenanceMode) {
                             item(key = "maint_banner") {
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = MaterialTheme.colorScheme.errorContainer,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(12.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.WarningAmber,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.error
-                                        )
-                                        Text(
-                                            text = labels.maintenanceWarning,
-                                            style = MaterialTheme.typography.labelMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onErrorContainer
-                                        )
-                                    }
-                                }
+                                AdminMaintenanceBannerCard(
+                                    flags = flags,
+                                    canManage = AdminRolePolicy.canManageSystemSettings(effectiveLevel),
+                                    labels = labels,
+                                    onManageClick = { onNavigate(AdminDestination.SETTINGS) }
+                                )
                             }
                         }
 
@@ -347,6 +334,95 @@ fun AdminDashboardScreen(
                                 )
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdminMaintenanceBannerCard(
+    flags: AdminServerFlags,
+    canManage: Boolean,
+    labels: AdminDashboardLabels,
+    onManageClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.errorContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.35f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.WarningAmber,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(22.dp)
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = labels.maintenanceWarning,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    if (flags.maintenanceDate.isNotBlank()) {
+                        Text(
+                            text = "${labels.maintenanceEndPrefix}: ${flags.maintenanceDate}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.88f)
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                StatusBadge(
+                    text = if (flags.maintenanceForceLogout) {
+                        labels.maintenanceForceLogoutOn
+                    } else {
+                        labels.maintenanceForceLogoutOff
+                    },
+                    tone = if (flags.maintenanceForceLogout) BadgeTone.DANGER else BadgeTone.WARNING
+                )
+
+                if (canManage) {
+                    FilledTonalButton(
+                        onClick = onManageClick,
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = labels.manageMaintenanceBtn,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
@@ -696,7 +772,7 @@ private data class DashboardQuickAction(
 @Composable
 private fun AdminQuickActionsRow(
     level: AdminLevel,
-    flags: com.phpnuxbill.mobile.feature.dashboard.model.AdminServerFlags,
+    flags: AdminServerFlags,
     labels: AdminDashboardLabels,
     isEn: Boolean,
     onQuickAddCustomer: () -> Unit,
