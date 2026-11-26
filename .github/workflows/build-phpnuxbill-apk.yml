@@ -1,6 +1,9 @@
-name: Build PHPNuxBill Admin APK
+name: Build PHPNuxBill Mobile APK
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       build_variant:
@@ -11,27 +14,50 @@ on:
         options:
           - 'release'
           - 'debug'
+      publish_release:
+        description: 'Publikasikan APK Release (Signed) ke GitHub Releases'
+        required: false
+        default: true
+        type: boolean
+      release_tag:
+        description: 'Tag rilis opsional (contoh: v3.1.0). Kosongkan untuk otomatis dari version.properties'
+        required: false
+        default: ''
+        type: string
       gradle_version:
         description: 'Versi Gradle Builder'
         required: true
         default: '9.6.0'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event.inputs.build_variant }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.build_variant || 'release' }}
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-apk:
-    name: Compile Android APK (${{ github.event.inputs.build_variant }})
+    name: Compile Android APK (${{ inputs.build_variant || 'release' }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      - name: Sanitize ACS IDE Local Paths (Linux Runner Compatibility)
+        run: |
+          if [ -f "gradle.properties" ]; then
+            sed -i '/android\.aapt2FromMavenOverride/d' gradle.properties
+            sed -i '/\/data\/data\/com\.acside/d' gradle.properties
+            echo "==> Cleaned ACS IDE paths from gradle.properties:"
+            cat gradle.properties
+          fi
+          if [ -f "local.properties" ] && grep -q "/data/data/com.acside" local.properties; then
+            rm -f local.properties
+            echo "==> Removed ACS IDE local.properties so runner uses ANDROID_HOME"
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -131,26 +157,92 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: ${{ github.event.inputs.gradle_version || '9.4.0' }}
+          gradle-version: ${{ inputs.gradle_version || '9.6.0' }}
+
+      - name: Decode Release Keystore (GitHub Secrets)
+        env:
+          BUILD_VARIANT: ${{ inputs.build_variant || 'release' }}
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          if [ "$BUILD_VARIANT" = "release" ] && [ -n "$SIGNING_KEYSTORE_BASE64" ]; then
+            echo "$SIGNING_KEYSTORE_BASE64" | tr -d '\r\n ' | base64 --decode > app/release.jks
+            echo "SIGNING_STORE_FILE=release.jks" >> "$GITHUB_ENV"
+            echo "HAS_KEYSTORE=true" >> "$GITHUB_ENV"
+            echo "==> Release keystore berhasil didekode ke app/release.jks"
+          else
+            echo "HAS_KEYSTORE=false" >> "$GITHUB_ENV"
+            echo "==> Keystore secret tidak disetel / mode debug; build berjalan tanpa signing release."
+          fi
 
       - name: Build Selected APK Variant
+        env:
+          BUILD_VARIANT: ${{ inputs.build_variant || 'release' }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
           mkdir -p output-apk
-          if [ "${{ github.event.inputs.build_variant }}" = "release" ]; then
-            gradle assembleRelease --stacktrace
+          if [ "$BUILD_VARIANT" = "release" ]; then
+            gradle :app:assembleRelease --stacktrace
+
+            V_MAJOR=$(grep -E '^VERSION_MAJOR=' app/version.properties 2>/dev/null | cut -d'=' -f2 | tr -d '\r ' || echo "3")
+            V_MINOR=$(grep -E '^VERSION_MINOR=' app/version.properties 2>/dev/null | cut -d'=' -f2 | tr -d '\r ' || echo "1")
+            V_PATCH=$(grep -E '^VERSION_PATCH=' app/version.properties 2>/dev/null | cut -d'=' -f2 | tr -d '\r ' || echo "0")
+            APP_VER="${V_MAJOR:-3}.${V_MINOR:-1}.${V_PATCH:-0}"
+            echo "APP_VERSION=${APP_VER}" >> "$GITHUB_ENV"
+
             if [ -f "app/build/outputs/apk/release/app-release.apk" ]; then
-              cp app/build/outputs/apk/release/app-release.apk output-apk/Arneta-Admin-v6-Release-Light.apk
+              cp app/build/outputs/apk/release/app-release.apk "output-apk/PHPNuxBill-Mobile.apk"
+              cp app/build/outputs/apk/release/app-release.apk "output-apk/PHPNuxBill-Mobile-v${APP_VER}-Release.apk"
+              echo "IS_SIGNED_RELEASE=true" >> "$GITHUB_ENV"
             elif [ -f "app/build/outputs/apk/release/app-release-unsigned.apk" ]; then
-              cp app/build/outputs/apk/release/app-release-unsigned.apk output-apk/Arneta-Admin-v6-Release-Light.apk
+              cp app/build/outputs/apk/release/app-release-unsigned.apk "output-apk/PHPNuxBill-Mobile-v${APP_VER}-Unsigned.apk"
+              echo "IS_SIGNED_RELEASE=false" >> "$GITHUB_ENV"
+            else
+              echo "ERROR: APK release tidak ditemukan!"
+              exit 1
             fi
           else
-            gradle assembleDebug --stacktrace
-            cp app/build/outputs/apk/debug/app-debug.apk output-apk/Arneta-Admin-v6-Debug.apk
+            gradle :app:assembleDebug --stacktrace
+            cp app/build/outputs/apk/debug/app-debug.apk "output-apk/PHPNuxBill-Mobile-Debug.apk"
+            echo "IS_SIGNED_RELEASE=false" >> "$GITHUB_ENV"
           fi
+
+      - name: Cleanup Temporary Keystore
+        if: always()
+        run: rm -f app/release.jks
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Arneta-Admin-${{ github.event.inputs.build_variant }}-APK
+          name: PHPNuxBill-Mobile-${{ inputs.build_variant || 'release' }}-APK
           path: output-apk/*.apk
           retention-days: 14
+
+      - name: Determine Release Tag
+        if: >-
+          env.IS_SIGNED_RELEASE == 'true' &&
+          (
+            (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+            (github.event_name == 'workflow_dispatch' && (inputs.build_variant || 'release') == 'release' && inputs.publish_release == true)
+          )
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${{ github.ref_name }}"
+          elif [ -n "${{ inputs.release_tag }}" ]; then
+            TAG="${{ inputs.release_tag }}"
+          else
+            TAG="v${APP_VERSION}"
+          fi
+          echo "RELEASE_TAG=${TAG}" >> "$GITHUB_ENV"
+
+      - name: Publish Signed APK to GitHub Releases
+        if: env.RELEASE_TAG != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: "PHPNuxBill Mobile ${{ env.RELEASE_TAG }}"
+          generate_release_notes: true
+          files: |
+            output-apk/PHPNuxBill-Mobile.apk
+            output-apk/PHPNuxBill-Mobile-v*-Release.apk
