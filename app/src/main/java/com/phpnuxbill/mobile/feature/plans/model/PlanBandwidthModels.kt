@@ -5,7 +5,7 @@ import com.phpnuxbill.mobile.core.i18n.AppStrings
 data class PlanItem(
     val id: Int,
     val namePlan: String,
-    val type: String, // Hotspot | PPPOE | VPN | Balance
+    val type: String, // Mengikuti ENUM aktual tbl_plans.type (standar: Hotspot | PPPOE | Balance)
     val price: Double,
     val priceOld: String,
     val idBw: Int,
@@ -67,9 +67,11 @@ data class PlanRouterOption(
 )
 
 data class PlanBandwidthMetadata(
+    val supportedPlanTypes: List<String> = listOf("Hotspot", "PPPOE", "Balance"),
+    val supportsVpn: Boolean = false,
     val bandwidths: List<BandwidthItem> = emptyList(),
     val burstPresets: List<BurstPresetItem> = emptyList(),
-    val devices: List<String> = listOf("MikrotikHotspot", "MikrotikPppoe", "MikrotikVpn", "Radius", "Dummy"),
+    val devices: List<String> = listOf("MikrotikHotspot", "MikrotikPppoe", "Radius", "Dummy"),
     val planTypes: List<String> = listOf("Personal", "Business"),
     val typebps: List<String> = listOf("Unlimited", "Limited"),
     val limitTypes: List<String> = listOf("Time_Limit", "Data_Limit", "Both_Limit"),
@@ -82,7 +84,7 @@ data class PlanFormState(
     val isOpen: Boolean = false,
     val isEdit: Boolean = false,
     val id: Int = 0,
-    val type: String = "Hotspot", // Hotspot | PPPOE | VPN | Balance
+    val type: String = "Hotspot", // Mengikuti ENUM aktual tbl_plans.type (standar: Hotspot | PPPOE | Balance)
     val namePlan: String = "",
     val price: String = "",
     val priceOld: String = "",
@@ -145,7 +147,12 @@ class PlanBandwidthLabels(strings: AppStrings) {
     val postpaidCycleDayLabel = if (isEn) "Postpaid Due Day (1 - 28)" else "Tanggal Jatuh Tempo (1 - 28)"
     val useRadiusLabel = if (isEn) "Use FreeRADIUS Server" else "Gunakan Server FreeRADIUS"
     val routerServerLabel = if (isEn) "Router / Server" else "Router / Server"
-    val ipPoolLabel = if (isEn) "IP Pool (Required for PPPoE/VPN)" else "IP Pool (Wajib untuk PPPoE/VPN)"
+    val ipPoolLabel = if (isEn) "IP Pool (Required for PPPoE)" else "IP Pool (Wajib untuk PPPoE)"
+    fun ipPoolLabelFor(supportsVpn: Boolean): String = if (supportsVpn) {
+        if (isEn) "IP Pool (Required for PPPoE/VPN)" else "IP Pool (Wajib untuk PPPoE/VPN)"
+    } else {
+        ipPoolLabel
+    }
     val deviceDriverLabel = if (isEn) "Device Driver" else "Driver Perangkat"
     val sharedUsersLabel = if (isEn) "Shared Users (Max Devices)" else "Shared Users (Maks Perangkat)"
     val hotspotLimitModeLabel = if (isEn) "Hotspot Bandwidth Mode" else "Mode Kuota Hotspot"
