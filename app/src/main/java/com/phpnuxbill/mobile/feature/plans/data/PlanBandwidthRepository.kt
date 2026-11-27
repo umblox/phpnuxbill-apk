@@ -12,6 +12,7 @@ import com.phpnuxbill.mobile.feature.plans.model.PlanFormState
 import com.phpnuxbill.mobile.feature.plans.model.PlanItem
 import com.phpnuxbill.mobile.feature.plans.model.PlanPoolOption
 import com.phpnuxbill.mobile.feature.plans.model.PlanRouterOption
+import kotlin.math.roundToInt
 
 /**
  * Kontrak Repository Paket & Bandwidth (SOLID - Interface Segregation Principle)
@@ -56,6 +57,14 @@ class RemotePlanBandwidthRepository(
             is ApiResult.Error -> res
             is ApiResult.Success -> {
                 val root = res.data?.asObjOrNull()
+
+                val supportedPlanTypes = root?.getAsJsonArray("supported_plan_types").toStringList()
+                    .ifEmpty { listOf("Hotspot", "PPPOE", "Balance") }
+                val supportsVpn = if (root != null && root.has("supports_vpn")) {
+                    root.boolVal("supports_vpn")
+                } else {
+                    supportedPlanTypes.any { it.equals("VPN", ignoreCase = true) }
+                }
 
                 val plans = mutableListOf<PlanItem>()
                 root?.getAsJsonArray("plans")?.forEach { el ->
@@ -122,8 +131,16 @@ class RemotePlanBandwidthRepository(
                     }
                 }
 
-                val devices = root?.getAsJsonArray("devices").toStringList()
-                    .ifEmpty { listOf("MikrotikHotspot", "MikrotikPppoe", "MikrotikVpn", "Radius", "Dummy") }
+                val defaultDevices = if (supportsVpn) {
+                    listOf("MikrotikHotspot", "MikrotikPppoe", "MikrotikVpn", "Radius", "Dummy")
+                } else {
+                    listOf("MikrotikHotspot", "MikrotikPppoe", "Radius", "Dummy")
+                }
+                val rawDevices = root?.getAsJsonArray("devices").toStringList()
+                val devices = rawDevices
+                    .filter { dev -> supportsVpn || !dev.contains("vpn", ignoreCase = true) }
+                    .ifEmpty { defaultDevices }
+
                 val planTypes = root?.getAsJsonArray("plan_types").toStringList()
                     .ifEmpty { listOf("Personal", "Business") }
                 val typebps = root?.getAsJsonArray("typebps").toStringList()
@@ -154,6 +171,8 @@ class RemotePlanBandwidthRepository(
 
                 ApiResult.Success(
                     data = plans to PlanBandwidthMetadata(
+                        supportedPlanTypes = supportedPlanTypes,
+                        supportsVpn = supportsVpn,
                         bandwidths = bandwidths,
                         burstPresets = presets,
                         devices = devices,
@@ -197,11 +216,11 @@ class RemotePlanBandwidthRepository(
                 if (form.type.equals("Hotspot", ignoreCase = true)) {
                     put("typebp", form.typebp)
                     put("limit_type", form.limitType)
-                    put("time_limit", form.timeLimit.trim().toIntOrNull() ?: 0)
+                    put("time_limit", (form.timeLimit.trim().toIntOrNull() ?: 0).coerceAtLeast(0))
                     put("time_unit", form.timeUnit)
-                    put("data_limit", form.dataLimit.trim().toDoubleOrNull() ?: 0.0)
+                    put("data_limit", (form.dataLimit.trim().toDoubleOrNull()?.roundToInt() ?: 0).coerceAtLeast(0))
                     put("data_unit", form.dataUnit)
-                    put("shared_users", form.sharedUsers.trim().toIntOrNull() ?: 1)
+                    put("shared_users", (form.sharedUsers.trim().toIntOrNull() ?: 1).coerceAtLeast(1))
                 }
             }
         }
@@ -264,12 +283,15 @@ class RemotePlanBandwidthRepository(
         )
         val hasCompleteBurst = fiveBurst.all { it.isNotEmpty() }
 
+        val rateDownInt = (form.rateDown.trim().toDoubleOrNull()?.roundToInt() ?: 0).coerceAtLeast(0)
+        val rateUpInt = (form.rateUp.trim().toDoubleOrNull()?.roundToInt() ?: 0).coerceAtLeast(0)
+
         val payload = buildMap<String, Any> {
             put("id", form.id)
             put("name_bw", form.nameBw.trim())
-            put("rate_down", form.rateDown.trim().toDoubleOrNull() ?: 0.0)
+            put("rate_down", rateDownInt)
             put("rate_down_unit", form.rateDownUnit)
-            put("rate_up", form.rateUp.trim().toDoubleOrNull() ?: 0.0)
+            put("rate_up", rateUpInt)
             put("rate_up_unit", form.rateUpUnit)
             if (hasCompleteBurst) {
                 put("burst", fiveBurst)
@@ -356,6 +378,21 @@ class RemotePlanBandwidthRepository(
             get(key).asDouble
         } catch (_: Exception) {
             get(key).asString.toDoubleOrNull() ?: 0.0
+        }
+    }
+
+    private fun JsonObject?.boolVal(key: String): Boolean {
+        if (this == null || !has(key) || get(key).isJsonNull) return false
+        return try {
+            val el = get(key)
+            if (el.isJsonPrimitive && el.asJsonPrimitive.isBoolean) {
+                el.asBoolean
+            } else {
+                val s = el.asString.trim().lowercase()
+                s == "1" || s == "true" || s == "yes"
+            }
+        } catch (_: Exception) {
+            false
         }
     }
 }
