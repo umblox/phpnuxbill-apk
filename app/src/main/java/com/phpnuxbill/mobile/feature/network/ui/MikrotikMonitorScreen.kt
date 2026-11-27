@@ -2,6 +2,7 @@
 
 package com.phpnuxbill.mobile.feature.network.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -24,6 +25,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
@@ -31,7 +33,10 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PersonOff
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -51,6 +56,7 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -61,7 +67,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -88,6 +93,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -102,16 +108,29 @@ import com.phpnuxbill.mobile.core.ui.components.LoadingStateView
 import com.phpnuxbill.mobile.core.ui.components.StatusBadge
 import com.phpnuxbill.mobile.core.ui.theme.BrandBlue600
 import com.phpnuxbill.mobile.core.ui.theme.BrandTeal500
+import com.phpnuxbill.mobile.feature.customers.model.RouterCoordHint
+import com.phpnuxbill.mobile.feature.customers.ui.CoordinatePickerDialog
 import com.phpnuxbill.mobile.feature.network.model.IpPoolFormState
 import com.phpnuxbill.mobile.feature.network.model.IpPoolItem
 import com.phpnuxbill.mobile.feature.network.model.NetworkGenieAcsLabels
+import com.phpnuxbill.mobile.feature.network.model.OdpFormState
+import com.phpnuxbill.mobile.feature.network.model.OdpItem
 import com.phpnuxbill.mobile.feature.network.model.OnlineSessionUser
 import com.phpnuxbill.mobile.feature.network.model.OnlineUsersSummary
+import com.phpnuxbill.mobile.feature.network.model.PortPoolFormState
+import com.phpnuxbill.mobile.feature.network.model.PortPoolItem
 import com.phpnuxbill.mobile.feature.network.model.RouterFormState
 import com.phpnuxbill.mobile.feature.network.model.RouterItem
 import com.phpnuxbill.mobile.feature.network.model.RouterLiveStatus
 import com.phpnuxbill.mobile.feature.network.model.RouterLogEntry
 import com.phpnuxbill.mobile.feature.network.model.TrafficSpeedSample
+import java.util.Locale
+
+private enum class MapPickerTarget {
+    NONE,
+    ROUTER,
+    ODP
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -131,9 +150,13 @@ fun MikrotikMonitorScreen(
     val onlineUsersState by viewModel.onlineUsersState.collectAsStateWithLifecycle()
     val onlineUserSearch by viewModel.onlineUserSearch.collectAsStateWithLifecycle()
     val ipPools by viewModel.ipPools.collectAsStateWithLifecycle()
+    val portPools by viewModel.portPools.collectAsStateWithLifecycle()
+    val odps by viewModel.odps.collectAsStateWithLifecycle()
     val routerLogs by viewModel.routerLogs.collectAsStateWithLifecycle()
     val routerForm by viewModel.routerForm.collectAsStateWithLifecycle()
     val poolForm by viewModel.poolForm.collectAsStateWithLifecycle()
+    val portPoolForm by viewModel.portPoolForm.collectAsStateWithLifecycle()
+    val odpForm by viewModel.odpForm.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val bannerMessage by viewModel.bannerMessage.collectAsStateWithLifecycle()
 
@@ -145,6 +168,26 @@ fun MikrotikMonitorScreen(
     var showRebootConfirm by remember { mutableStateOf(false) }
     var kickTarget by remember { mutableStateOf<OnlineSessionUser?>(null) }
     var onlineTypeFilter by remember { mutableStateOf("all") }
+    var infraSubFilter by remember { mutableStateOf("all") } // all | routers | odps | ip_pools | port_pools
+    var mapPickerTarget by remember { mutableStateOf(MapPickerTarget.NONE) }
+    var deletePortPoolTarget by remember { mutableStateOf<PortPoolItem?>(null) }
+    var deleteOdpTarget by remember { mutableStateOf<OdpItem?>(null) }
+
+    val routerCoordHints = remember(routers) {
+        routers.mapNotNull { r ->
+            val parts = r.coordinates.replace(";", ",").split(",").map { it.trim() }
+            val lat = parts.getOrNull(0)?.toDoubleOrNull() ?: return@mapNotNull null
+            val lng = parts.getOrNull(1)?.toDoubleOrNull() ?: return@mapNotNull null
+            if ((lat == 0.0 && lng == 0.0) || lat !in -90.0..90.0) return@mapNotNull null
+            RouterCoordHint(
+                id = r.id,
+                name = r.name,
+                lat = lat,
+                lng = lng,
+                coverageMeters = r.coverage.filter { it.isDigit() }.toIntOrNull() ?: 0
+            )
+        }
+    }
 
     DisposableEffect(Unit) {
         if (selectedTab == 0) viewModel.startLivePolling()
@@ -157,10 +200,55 @@ fun MikrotikMonitorScreen(
         viewModel.clearBanner()
     }
 
+    // BackHandler untuk Map Picker dan seluruh form layar penuh
+    BackHandler(
+        enabled = mapPickerTarget != MapPickerTarget.NONE ||
+            routerForm.isOpen || poolForm.isOpen || portPoolForm.isOpen || odpForm.isOpen
+    ) {
+        when {
+            mapPickerTarget != MapPickerTarget.NONE -> mapPickerTarget = MapPickerTarget.NONE
+            odpForm.isOpen -> viewModel.closeOdpForm()
+            portPoolForm.isOpen -> viewModel.closePortPoolForm()
+            poolForm.isOpen -> viewModel.closePoolForm()
+            routerForm.isOpen -> viewModel.closeRouterForm()
+        }
+    }
+
+    // Pemilih Koordinat Peta (untuk Form Router atau Form ODP)
+    if (mapPickerTarget != MapPickerTarget.NONE) {
+        val initCoords = when (mapPickerTarget) {
+            MapPickerTarget.ROUTER -> routerForm.coordinates
+            MapPickerTarget.ODP -> odpForm.coordinates
+            MapPickerTarget.NONE -> ""
+        }
+        val pickerTitle = when (mapPickerTarget) {
+            MapPickerTarget.ROUTER -> if (isEn) "Pick Router Location" else "Pilih Lokasi Router"
+            MapPickerTarget.ODP -> if (isEn) "Pick ODP Location" else "Pilih Lokasi ODP"
+            MapPickerTarget.NONE -> null
+        }
+        CoordinatePickerDialog(
+            initialCoordinates = initCoords,
+            routerHints = routerCoordHints,
+            title = pickerTitle,
+            onConfirm = { lat, lng ->
+                val formatted = String.format(Locale.US, "%.6f, %.6f", lat, lng)
+                when (mapPickerTarget) {
+                    MapPickerTarget.ROUTER -> viewModel.updateRouterForm { it.copy(coordinates = formatted) }
+                    MapPickerTarget.ODP -> viewModel.updateOdpForm { it.copy(coordinates = formatted) }
+                    MapPickerTarget.NONE -> {}
+                }
+                mapPickerTarget = MapPickerTarget.NONE
+            },
+            onDismiss = { mapPickerTarget = MapPickerTarget.NONE }
+        )
+        return
+    }
+
     if (routerForm.isOpen) {
         FullScreenRouterForm(
             form = routerForm,
             labels = labels,
+            onPickMap = { mapPickerTarget = MapPickerTarget.ROUTER },
             onUpdate = viewModel::updateRouterForm,
             onSubmit = viewModel::submitRouterForm,
             onClose = viewModel::closeRouterForm
@@ -176,6 +264,32 @@ fun MikrotikMonitorScreen(
             onUpdate = viewModel::updatePoolForm,
             onSubmit = viewModel::submitPoolForm,
             onClose = viewModel::closePoolForm
+        )
+        return
+    }
+
+    if (portPoolForm.isOpen) {
+        FullScreenPortPoolForm(
+            form = portPoolForm,
+            routers = routers,
+            existingPortPools = portPools,
+            labels = labels,
+            isEn = isEn,
+            onUpdate = viewModel::updatePortPoolForm,
+            onSubmit = viewModel::submitPortPoolForm,
+            onClose = viewModel::closePortPoolForm
+        )
+        return
+    }
+
+    if (odpForm.isOpen) {
+        FullScreenOdpForm(
+            form = odpForm,
+            labels = labels,
+            onPickMap = { mapPickerTarget = MapPickerTarget.ODP },
+            onUpdate = viewModel::updateOdpForm,
+            onSubmit = viewModel::submitOdpForm,
+            onClose = viewModel::closeOdpForm
         )
         return
     }
@@ -237,6 +351,64 @@ fun MikrotikMonitorScreen(
         )
     }
 
+    if (deletePortPoolTarget != null) {
+        val target = deletePortPoolTarget!!
+        AlertDialog(
+            onDismissRequest = { deletePortPoolTarget = null },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
+            shape = RoundedCornerShape(22.dp),
+            title = { Text("${strings.delete} (${target.portName})", fontWeight = FontWeight.Bold) },
+            text = { Text(labels.deletePortPoolConfirm) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        deletePortPoolTarget = null
+                        viewModel.deletePortPool(target.id)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(strings.delete)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { deletePortPoolTarget = null }, shape = RoundedCornerShape(12.dp)) {
+                    Text(strings.cancel)
+                }
+            }
+        )
+    }
+
+    if (deleteOdpTarget != null) {
+        val target = deleteOdpTarget!!
+        AlertDialog(
+            onDismissRequest = { deleteOdpTarget = null },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
+            shape = RoundedCornerShape(22.dp),
+            title = { Text("${strings.delete} (${target.name})", fontWeight = FontWeight.Bold) },
+            text = { Text(labels.deleteOdpConfirm) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        deleteOdpTarget = null
+                        viewModel.deleteOdp(target.id)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(strings.delete)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { deleteOdpTarget = null }, shape = RoundedCornerShape(12.dp)) {
+                    Text(strings.cancel)
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -283,7 +455,7 @@ fun MikrotikMonitorScreen(
                             onClick = {
                                 when (selectedTab) {
                                     1 -> viewModel.loadOnlineUsers(isPullRefresh = true)
-                                    2 -> viewModel.loadRoutersAndPools()
+                                    2 -> viewModel.loadRoutersAndPools(isPullRefresh = true)
                                     3 -> viewModel.loadRouterLogs()
                                 }
                             }
@@ -305,7 +477,7 @@ fun MikrotikMonitorScreen(
                 .padding(innerPadding)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            if (routers.isNotEmpty()) {
+            if (routers.isNotEmpty() && selectedTab != 2) {
                 LazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -367,13 +539,26 @@ fun MikrotikMonitorScreen(
                 2 -> RoutersAndPoolsTabContent(
                     routers = routers,
                     pools = ipPools,
+                    portPools = portPools,
+                    odps = odps,
+                    subFilter = infraSubFilter,
+                    isRefreshing = isRefreshing,
                     labels = labels,
+                    isEn = isEn,
+                    onSubFilterChanged = { infraSubFilter = it },
+                    onRefresh = { viewModel.loadRoutersAndPools(isPullRefresh = true) },
                     onAddRouter = viewModel::openAddRouterForm,
                     onEditRouter = viewModel::openEditRouterForm,
                     onDeleteRouter = viewModel::deleteRouter,
                     onAddPool = viewModel::openAddPoolForm,
                     onEditPool = viewModel::openEditPoolForm,
-                    onDeletePool = viewModel::deletePool
+                    onDeletePool = viewModel::deletePool,
+                    onAddPortPool = viewModel::openAddPortPoolForm,
+                    onEditPortPool = viewModel::openEditPortPoolForm,
+                    onDeletePortPool = { deletePortPoolTarget = it },
+                    onAddOdp = viewModel::openAddOdpForm,
+                    onEditOdp = viewModel::openEditOdpForm,
+                    onDeleteOdp = { deleteOdpTarget = it }
                 )
                 3 -> RouterLogsTabContent(
                     logs = routerLogs,
@@ -694,7 +879,6 @@ private fun OnlineUsersTabContent(
     val pppoeCount = remember(allUsers) { allUsers.count { it.service.equals("PPPoE", true) } }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // 1. Strip Ringkasan KPI Real-time (Selaras dengan Pelanggan Aktif)
         if (summaryData != null) {
             Row(
                 modifier = Modifier
@@ -730,7 +914,6 @@ private fun OnlineUsersTabContent(
             }
         }
 
-        // 2. Pencarian + Filter Tipe Koneksi MikroTik (Semua | Hotspot | PPPoE)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1008,112 +1191,370 @@ private fun OnlineUserRichCard(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RoutersAndPoolsTabContent(
     routers: List<RouterItem>,
     pools: List<IpPoolItem>,
+    portPools: List<PortPoolItem>,
+    odps: List<OdpItem>,
+    subFilter: String,
+    isRefreshing: Boolean,
     labels: NetworkGenieAcsLabels,
+    isEn: Boolean,
+    onSubFilterChanged: (String) -> Unit,
+    onRefresh: () -> Unit,
     onAddRouter: () -> Unit,
     onEditRouter: (RouterItem) -> Unit,
     onDeleteRouter: (Int) -> Unit,
     onAddPool: () -> Unit,
     onEditPool: (IpPoolItem) -> Unit,
-    onDeletePool: (Int) -> Unit
+    onDeletePool: (Int) -> Unit,
+    onAddPortPool: () -> Unit,
+    onEditPortPool: (PortPoolItem) -> Unit,
+    onDeletePortPool: (PortPoolItem) -> Unit,
+    onAddOdp: () -> Unit,
+    onEditOdp: (OdpItem) -> Unit,
+    onDeleteOdp: (OdpItem) -> Unit
 ) {
     val strings = LocalAppStrings.current
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+    val showRouters = subFilter == "all" || subFilter == "routers"
+    val showOdps = subFilter == "all" || subFilter == "odps"
+    val showIpPools = subFilter == "all" || subFilter == "ip_pools"
+    val showPortPools = subFilter == "all" || subFilter == "port_pools"
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        LazyRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            val chips = listOf(
+                "all" to strings.all,
+                "routers" to "Routers (${routers.size})",
+                "odps" to "ODP (${odps.size})",
+                "ip_pools" to "IP Pool (${pools.size})",
+                "port_pools" to "Port Pool (${portPools.size})"
+            )
+            items(chips) { (key, title) ->
+                FilterChip(
+                    selected = subFilter == key,
+                    onClick = { onSubFilterChanged(key) },
+                    label = { Text(title, maxLines = 1) }
+                )
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize()
+        ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // =============================================================
+                // 1. MIKROTIK ROUTERS (tbl_routers)
+                // =============================================================
+                if (showRouters) {
+                    item {
+                        InfraSectionHeader(
+                            title = "MikroTik Routers (${routers.size})",
+                            addLabel = strings.add,
+                            onAdd = onAddRouter
+                        )
+                    }
+                    if (routers.isEmpty()) {
+                        item { EmptyInfraCard(text = strings.noData) }
+                    } else {
+                        items(routers, key = { "r_${it.id}" }) { r ->
+                            ElevatedCard(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(r.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            text = "${r.ipAddress} • User: ${r.username}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        if (r.coordinates.isNotBlank()) {
+                                            Text(
+                                                text = "GPS: ${r.coordinates} • Radius ${r.coverage}m",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+                                    IconButton(onClick = { onEditRouter(r) }) {
+                                        Icon(Icons.Outlined.Edit, contentDescription = strings.edit)
+                                    }
+                                    IconButton(onClick = { onDeleteRouter(r.id) }) {
+                                        Icon(Icons.Outlined.Delete, contentDescription = strings.delete, tint = MaterialTheme.colorScheme.error)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // =============================================================
+                // 2. ODP / OPTICAL DISTRIBUTION POINTS (tbl_odps)
+                // =============================================================
+                if (showOdps) {
+                    item {
+                        if (subFilter == "all") Spacer(modifier = Modifier.height(6.dp))
+                        InfraSectionHeader(
+                            title = "${labels.odpsTitle} (${odps.size})",
+                            addLabel = strings.add,
+                            onAdd = onAddOdp
+                        )
+                    }
+                    if (odps.isEmpty()) {
+                        item {
+                            EmptyInfraCard(
+                                text = if (isEn) "No ODP points registered yet." else "Belum ada titik ODP yang terdaftar."
+                            )
+                        }
+                    } else {
+                        items(odps, key = { "odp_${it.id}" }) { odp ->
+                            ElevatedCard(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                                    ) {
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = odp.name,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            StatusBadge(
+                                                text = "${odp.portAmount} Port",
+                                                tone = BadgeTone.INFO
+                                            )
+                                        }
+                                        Text(
+                                            text = "Redaman: ${String.format(Locale.US, "%.2f", odp.attenuation)} dB • Radius: ${odp.coverage}m",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        if (odp.address.isNotBlank()) {
+                                            Text(
+                                                text = odp.address,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        if (odp.coordinates.isNotBlank()) {
+                                            Text(
+                                                text = "GPS: ${odp.coordinates}",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                    IconButton(onClick = { onEditOdp(odp) }) {
+                                        Icon(Icons.Outlined.Edit, contentDescription = strings.edit)
+                                    }
+                                    IconButton(onClick = { onDeleteOdp(odp) }) {
+                                        Icon(Icons.Outlined.Delete, contentDescription = strings.delete, tint = MaterialTheme.colorScheme.error)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // =============================================================
+                // 3. IP POOLS (tbl_pool)
+                // =============================================================
+                if (showIpPools) {
+                    item {
+                        if (subFilter == "all") Spacer(modifier = Modifier.height(6.dp))
+                        InfraSectionHeader(
+                            title = "IP Pools (${pools.size})",
+                            addLabel = strings.add,
+                            onAdd = onAddPool
+                        )
+                    }
+                    if (pools.isEmpty()) {
+                        item { EmptyInfraCard(text = strings.noData) }
+                    } else {
+                        items(pools, key = { "p_${it.id}" }) { p ->
+                            ElevatedCard(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(p.poolName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            text = "${p.rangeIp} • ${p.routers}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        if (p.localIp.isNotBlank()) {
+                                            Text(
+                                                text = "Local IP: ${p.localIp}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                    IconButton(onClick = { onEditPool(p) }) {
+                                        Icon(Icons.Outlined.Edit, contentDescription = strings.edit)
+                                    }
+                                    IconButton(onClick = { onDeletePool(p.id) }) {
+                                        Icon(Icons.Outlined.Delete, contentDescription = strings.delete, tint = MaterialTheme.colorScheme.error)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // =============================================================
+                // 4. PORT POOLS (tbl_port_pool)
+                // =============================================================
+                if (showPortPools) {
+                    item {
+                        if (subFilter == "all") Spacer(modifier = Modifier.height(6.dp))
+                        InfraSectionHeader(
+                            title = "${labels.portPoolsTitle} (${portPools.size})",
+                            addLabel = strings.add,
+                            onAdd = onAddPortPool
+                        )
+                    }
+                    if (portPools.isEmpty()) {
+                        item {
+                            EmptyInfraCard(
+                                text = if (isEn) "No Port Pools configured yet." else "Belum ada Port Pool yang dikonfigurasi."
+                            )
+                        }
+                    } else {
+                        items(portPools, key = { "pp_${it.id}" }) { pp ->
+                            ElevatedCard(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = pp.portName,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            StatusBadge(text = pp.routers, tone = BadgeTone.NEUTRAL)
+                                        }
+                                        Text(
+                                            text = "Port: ${pp.rangePort}",
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        if (pp.publicIp.isNotBlank()) {
+                                            Text(
+                                                text = "Public IP: ${pp.publicIp}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                    IconButton(onClick = { onEditPortPool(pp) }) {
+                                        Icon(Icons.Outlined.Edit, contentDescription = strings.edit)
+                                    }
+                                    IconButton(onClick = { onDeletePortPool(pp) }) {
+                                        Icon(Icons.Outlined.Delete, contentDescription = strings.delete, tint = MaterialTheme.colorScheme.error)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InfraSectionHeader(
+    title: String,
+    addLabel: String,
+    onAdd: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("MikroTik Routers (${routers.size})", style = MaterialTheme.typography.titleMedium)
-                Button(onClick = onAddRouter, shape = RoundedCornerShape(10.dp)) {
-                    Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(strings.add)
-                }
-            }
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Button(onClick = onAdd, shape = RoundedCornerShape(10.dp)) {
+            Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(addLabel)
         }
+    }
+}
 
-        items(routers, key = { "r_${it.id}" }) { r ->
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(r.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(
-                            text = "${r.ipAddress} • User: ${r.username}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    IconButton(onClick = { onEditRouter(r) }) {
-                        Icon(Icons.Outlined.Edit, contentDescription = strings.edit)
-                    }
-                    IconButton(onClick = { onDeleteRouter(r.id) }) {
-                        Icon(Icons.Outlined.Delete, contentDescription = strings.delete, tint = MaterialTheme.colorScheme.error)
-                    }
-                }
-            }
-        }
-
-        item {
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("IP Pools (${pools.size})", style = MaterialTheme.typography.titleMedium)
-                Button(onClick = onAddPool, shape = RoundedCornerShape(10.dp)) {
-                    Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(strings.add)
-                }
-            }
-        }
-
-        items(pools, key = { "p_${it.id}" }) { p ->
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(p.poolName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(
-                            text = "${p.rangeIp} • ${p.routers}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    IconButton(onClick = { onEditPool(p) }) {
-                        Icon(Icons.Outlined.Edit, contentDescription = strings.edit)
-                    }
-                    IconButton(onClick = { onDeletePool(p.id) }) {
-                        Icon(Icons.Outlined.Delete, contentDescription = strings.delete, tint = MaterialTheme.colorScheme.error)
-                    }
-                }
-            }
-        }
+@Composable
+private fun EmptyInfraCard(text: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(14.dp)
+        )
     }
 }
 
@@ -1169,6 +1610,7 @@ private fun RouterLogsTabContent(
 private fun FullScreenRouterForm(
     form: RouterFormState,
     labels: NetworkGenieAcsLabels,
+    onPickMap: () -> Unit,
     onUpdate: ((RouterFormState) -> RouterFormState) -> Unit,
     onSubmit: () -> Unit,
     onClose: () -> Unit
@@ -1239,10 +1681,33 @@ private fun FullScreenRouterForm(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = form.coordinates,
+                    onValueChange = { v -> onUpdate { it.copy(coordinates = v) } },
+                    label = { Text(labels.odpCoordinatesLabel) },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true
+                )
+                FilledTonalButton(
+                    onClick = onPickMap,
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp)
+                ) {
+                    Icon(Icons.Outlined.LocationOn, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(labels.pickCoordinatesMap, maxLines = 1)
+                }
+            }
             OutlinedTextField(
-                value = form.coordinates,
-                onValueChange = { v -> onUpdate { it.copy(coordinates = v) } },
-                label = { Text("Coordinates (lat, lng)") },
+                value = form.coverage,
+                onValueChange = { v -> onUpdate { it.copy(coverage = v.filter { c -> c.isDigit() }) } },
+                label = { Text(labels.odpCoverageLabel) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
@@ -1372,11 +1837,284 @@ private fun FullScreenPoolForm(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FullScreenPortPoolForm(
+    form: PortPoolFormState,
+    routers: List<RouterItem>,
+    existingPortPools: List<PortPoolItem>,
+    labels: NetworkGenieAcsLabels,
+    isEn: Boolean,
+    onUpdate: ((PortPoolFormState) -> PortPoolFormState) -> Unit,
+    onSubmit: () -> Unit,
+    onClose: () -> Unit
+) {
+    val strings = LocalAppStrings.current
+    var routerExpanded by remember { mutableStateOf(false) }
+    val occupiedRouters = remember(existingPortPools, form.id) {
+        existingPortPools.filter { it.id != form.id }.map { it.routers.lowercase() }.toSet()
+    }
+
+    AppScreenScaffold(
+        title = if (form.isEdit) labels.editPortPool else labels.addPortPool,
+        onBack = onClose,
+        bottomBar = {
+            Surface(tonalElevation = 4.dp, shadowElevation = 8.dp) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(onClick = onClose, modifier = Modifier.weight(1f)) { Text(strings.cancel) }
+                    Button(
+                        onClick = onSubmit,
+                        enabled = !form.isSaving && form.portName.isNotBlank() && form.rangePort.isNotBlank() && form.routers.isNotBlank(),
+                        modifier = Modifier.weight(1.5f)
+                    ) {
+                        if (form.isSaving) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        else Text(strings.save)
+                    }
+                }
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Info,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = labels.portPoolRuleHint,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+
+            AnimatedVisibility(visible = !form.error.isNullOrBlank()) {
+                Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(10.dp)) {
+                    Text(form.error.orEmpty(), color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(12.dp))
+                }
+            }
+
+            OutlinedTextField(
+                value = form.portName,
+                onValueChange = { v -> onUpdate { it.copy(portName = v) } },
+                label = { Text(labels.portNameLabel) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
+            )
+            OutlinedTextField(
+                value = form.publicIp,
+                onValueChange = { v -> onUpdate { it.copy(publicIp = v) } },
+                label = { Text(labels.publicIpLabel) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
+            )
+            OutlinedTextField(
+                value = form.rangePort,
+                onValueChange = { v -> onUpdate { it.copy(rangePort = v) } },
+                label = { Text(labels.rangePortLabel) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            ExposedDropdownMenuBox(
+                expanded = routerExpanded,
+                onExpandedChange = { routerExpanded = !routerExpanded }
+            ) {
+                OutlinedTextField(
+                    value = form.routers,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Router") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = routerExpanded) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                ExposedDropdownMenu(
+                    expanded = routerExpanded,
+                    onDismissRequest = { routerExpanded = false }
+                ) {
+                    routers.forEach { r ->
+                        val isUsed = occupiedRouters.contains(r.name.lowercase())
+                        val suffix = if (isUsed) (if (isEn) " (Used)" else " (Sudah ada)") else ""
+                        DropdownMenuItem(
+                            text = { Text("${r.name}$suffix") },
+                            onClick = {
+                                onUpdate { it.copy(routers = r.name) }
+                                routerExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FullScreenOdpForm(
+    form: OdpFormState,
+    labels: NetworkGenieAcsLabels,
+    onPickMap: () -> Unit,
+    onUpdate: ((OdpFormState) -> OdpFormState) -> Unit,
+    onSubmit: () -> Unit,
+    onClose: () -> Unit
+) {
+    val strings = LocalAppStrings.current
+
+    AppScreenScaffold(
+        title = if (form.isEdit) labels.editOdp else labels.addOdp,
+        onBack = onClose,
+        bottomBar = {
+            Surface(tonalElevation = 4.dp, shadowElevation = 8.dp) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(onClick = onClose, modifier = Modifier.weight(1f)) { Text(strings.cancel) }
+                    Button(
+                        onClick = onSubmit,
+                        enabled = !form.isSaving && form.name.trim().length in 5..15,
+                        modifier = Modifier.weight(1.5f)
+                    ) {
+                        if (form.isSaving) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        else Text(strings.save)
+                    }
+                }
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            AnimatedVisibility(visible = !form.error.isNullOrBlank()) {
+                Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(10.dp)) {
+                    Text(form.error.orEmpty(), color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(12.dp))
+                }
+            }
+
+            OutlinedTextField(
+                value = form.name,
+                onValueChange = { v -> onUpdate { it.copy(name = v) } },
+                label = { Text(labels.odpNameLabel) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = form.portAmount,
+                    onValueChange = { v -> onUpdate { it.copy(portAmount = v.filter { c -> c.isDigit() }) } },
+                    label = { Text(labels.odpPortAmountLabel) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+                OutlinedTextField(
+                    value = form.attenuation,
+                    onValueChange = { v ->
+                        val cleaned = v.filter { c -> c.isDigit() || c == '.' || c == ',' || c == '-' }
+                        onUpdate { it.copy(attenuation = cleaned) }
+                    },
+                    label = { Text(labels.odpAttenuationLabel) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+
+            OutlinedTextField(
+                value = form.coverage,
+                onValueChange = { v -> onUpdate { it.copy(coverage = v.filter { c -> c.isDigit() }) } },
+                label = { Text(labels.odpCoverageLabel) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = form.coordinates,
+                    onValueChange = { v -> onUpdate { it.copy(coordinates = v) } },
+                    label = { Text(labels.odpCoordinatesLabel) },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+                FilledTonalButton(
+                    onClick = onPickMap,
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp)
+                ) {
+                    Icon(Icons.Outlined.MyLocation, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(labels.pickCoordinatesMap, maxLines = 1)
+                }
+            }
+
+            OutlinedTextField(
+                value = form.address,
+                onValueChange = { v -> onUpdate { it.copy(address = v) } },
+                label = { Text(labels.odpAddressLabel) },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 3,
+                shape = RoundedCornerShape(12.dp)
+            )
+        }
+    }
+}
+
 private fun formatBitsPerSec(bps: Long): String {
     return when {
-        bps >= 1_000_000_000L -> String.format(java.util.Locale.US, "%.2f Gbps", bps / 1_000_000_000.0)
-        bps >= 1_000_000L -> String.format(java.util.Locale.US, "%.2f Mbps", bps / 1_000_000.0)
-        bps >= 1_000L -> String.format(java.util.Locale.US, "%.1f Kbps", bps / 1_000.0)
+        bps >= 1_000_000_000L -> String.format(Locale.US, "%.2f Gbps", bps / 1_000_000_000.0)
+        bps >= 1_000_000L -> String.format(Locale.US, "%.2f Mbps", bps / 1_000_000.0)
+        bps >= 1_000L -> String.format(Locale.US, "%.1f Kbps", bps / 1_000.0)
         else -> "$bps bps"
     }
 }
