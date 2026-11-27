@@ -2,7 +2,6 @@ package com.phpnuxbill.mobile.feature.services.ui
 
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,11 +20,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
@@ -40,18 +36,13 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Router
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Speed
-import androidx.compose.material.icons.outlined.Update
 import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -59,11 +50,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -93,7 +82,6 @@ import com.phpnuxbill.mobile.core.i18n.LocalAppStrings
 import com.phpnuxbill.mobile.core.model.SessionState
 import com.phpnuxbill.mobile.core.model.UiState
 import com.phpnuxbill.mobile.core.ui.components.AppFloatingSnackbarHost
-import com.phpnuxbill.mobile.core.ui.components.AppScreenScaffold
 import com.phpnuxbill.mobile.core.ui.components.BadgeTone
 import com.phpnuxbill.mobile.core.ui.components.ErrorStateView
 import com.phpnuxbill.mobile.core.ui.components.LoadingStateView
@@ -102,13 +90,8 @@ import com.phpnuxbill.mobile.core.ui.theme.BrandBlue600
 import com.phpnuxbill.mobile.core.ui.theme.BrandTeal500
 import com.phpnuxbill.mobile.feature.dashboard.ui.formatMoney
 import com.phpnuxbill.mobile.feature.services.model.ActiveServiceSheetMode
-import com.phpnuxbill.mobile.feature.services.model.CustomerOption
-import com.phpnuxbill.mobile.feature.services.model.DepositFormState
 import com.phpnuxbill.mobile.feature.services.model.PrepaidServiceItem
-import com.phpnuxbill.mobile.feature.services.model.RechargeFormState
-import com.phpnuxbill.mobile.feature.services.model.RefillFormState
 import com.phpnuxbill.mobile.feature.services.model.ServiceVoucherLabels
-import com.phpnuxbill.mobile.feature.services.model.ServiceVoucherMetadata
 import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.ceil
@@ -324,6 +307,16 @@ fun ServicesScreen(
     }
 
     val allItems = (servicesState as? UiState.Success)?.data.orEmpty()
+    val hasVpnOption = remember(metadata.internetPlans, allItems) {
+        metadata.internetPlans.any { it.type.equals("VPN", ignoreCase = true) } ||
+            allItems.any { it.type.equals("VPN", ignoreCase = true) }
+    }
+    LaunchedEffect(hasVpnOption, typeFilter) {
+        if (!hasVpnOption && typeFilter.equals("VPN", ignoreCase = true)) {
+            viewModel.onServiceTypeFilterChanged("all")
+        }
+    }
+
     val filteredItems = remember(allItems, typeFilter) {
         if (typeFilter.equals("all", ignoreCase = true)) allItems
         else allItems.filter { it.type.equals(typeFilter, ignoreCase = true) }
@@ -454,7 +447,7 @@ fun ServicesScreen(
                 }
             }
 
-            // Pencarian & Filter Ganda (Status + Tipe Layanan)
+            // Pencarian & Filter Ganda (Status + Tipe Layanan aktual server)
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -501,12 +494,12 @@ fun ServicesScreen(
                                 .background(MaterialTheme.colorScheme.outlineVariant)
                         )
                     }
-                    val typeOptions = listOf(
-                        "all" to (if (isEn) "All Types" else "Semua Tipe"),
-                        "Hotspot" to "Hotspot",
-                        "PPPoE" to "PPPoE",
-                        "VPN" to "VPN"
-                    )
+                    val typeOptions = buildList {
+                        add("all" to (if (isEn) "All Types" else "Semua Tipe"))
+                        add("Hotspot" to "Hotspot")
+                        add("PPPoE" to "PPPoE")
+                        if (hasVpnOption) add("VPN" to "VPN")
+                    }
                     items(typeOptions) { (key, label) ->
                         FilterChip(
                             selected = typeFilter.equals(key, ignoreCase = true),
