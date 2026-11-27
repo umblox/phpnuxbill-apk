@@ -3,7 +3,7 @@ package com.phpnuxbill.mobile.feature.network.model
 import com.phpnuxbill.mobile.core.i18n.AppStrings
 
 // =========================================================================
-// MODEL MIKROTIK, ROUTER & IP POOL
+// MODEL MIKROTIK, ROUTER, IP POOL, PORT POOL & ODP
 // =========================================================================
 
 data class RouterItem(
@@ -23,6 +23,24 @@ data class IpPoolItem(
     val localIp: String,
     val rangeIp: String,
     val routers: String
+)
+
+data class PortPoolItem(
+    val id: Int,
+    val portName: String,
+    val publicIp: String,
+    val rangePort: String,
+    val routers: String
+)
+
+data class OdpItem(
+    val id: Int,
+    val name: String,
+    val portAmount: Int,
+    val attenuation: Double,
+    val address: String,
+    val coordinates: String,
+    val coverage: Int
 )
 
 data class InterfaceTrafficItem(
@@ -121,6 +139,32 @@ data class IpPoolFormState(
     val localIp: String = "",
     val rangeIp: String = "",
     val routers: String = "",
+    val isSaving: Boolean = false,
+    val error: String? = null
+)
+
+data class PortPoolFormState(
+    val isOpen: Boolean = false,
+    val isEdit: Boolean = false,
+    val id: Int = 0,
+    val portName: String = "",
+    val publicIp: String = "",
+    val rangePort: String = "",
+    val routers: String = "",
+    val isSaving: Boolean = false,
+    val error: String? = null
+)
+
+data class OdpFormState(
+    val isOpen: Boolean = false,
+    val isEdit: Boolean = false,
+    val id: Int = 0,
+    val name: String = "",
+    val portAmount: String = "8",
+    val attenuation: String = "0.00",
+    val address: String = "",
+    val coordinates: String = "",
+    val coverage: String = "150",
     val isSaving: Boolean = false,
     val error: String? = null
 )
@@ -266,7 +310,7 @@ class NetworkGenieAcsLabels(strings: AppStrings) {
     // MikroTik Tabs & Labels
     val tabLiveMonitor = if (isEn) "Live Monitor" else "Monitor Live"
     val tabOnlineUsers = if (isEn) "Online Users" else "User Online"
-    val tabRoutersPools = if (isEn) "Routers & Pools" else "Router & Pool"
+    val tabRoutersPools = if (isEn) "Routers & ODP" else "Router & ODP"
     val tabRouterLogs = if (isEn) "Logs" else "Log Router"
     val selectRouter = if (isEn) "Select Router" else "Pilih Router"
     val monitoredInterface = if (isEn) "Monitored Interface" else "Interface Dipantau"
@@ -284,6 +328,33 @@ class NetworkGenieAcsLabels(strings: AppStrings) {
     val localIpLabel = if (isEn) "Local / Gateway IP (Optional)" else "IP Lokal / Gateway (Opsional)"
     val rebootConfirmMsg = if (isEn) "Reboot this MikroTik router now?" else "Mulai ulang (Reboot) router MikroTik ini sekarang?"
     val kickConfirmMsg = if (isEn) "Disconnect this active user session?" else "Putuskan sesi pengguna aktif ini dari router?"
+
+    // Port Pool (tbl_port_pool) Labels
+    val portPoolsTitle = if (isEn) "Port Pools" else "Port Pool"
+    val addPortPool = if (isEn) "Add Port Pool" else "Tambah Port Pool"
+    val editPortPool = if (isEn) "Edit Port Pool" else "Edit Port Pool"
+    val portNameLabel = if (isEn) "Port Pool Name (3-30 chars)" else "Nama Port Pool (3-30 karakter)"
+    val publicIpLabel = if (isEn) "Public IP Address" else "Alamat IP Publik"
+    val rangePortLabel = if (isEn) "Port Range (e.g. 10000-20000)" else "Rentang Port (mis. 10000-20000)"
+    val portPoolRuleHint = if (isEn) {
+        "Each router can only have 1 port range (used for NAT / remote port mapping)."
+    } else {
+        "Setiap router hanya boleh memiliki 1 rentang port (untuk pemetaan port NAT / remote)."
+    }
+    val deletePortPoolConfirm = if (isEn) "Delete this Port Pool permanently?" else "Hapus Port Pool ini secara permanen?"
+
+    // ODP / Optical Distribution Point (tbl_odps) Labels
+    val odpsTitle = if (isEn) "ODP List" else "Daftar ODP"
+    val addOdp = if (isEn) "Add ODP" else "Tambah ODP"
+    val editOdp = if (isEn) "Edit ODP" else "Edit ODP"
+    val odpNameLabel = if (isEn) "ODP Name (5-15 chars)" else "Nama ODP (5-15 karakter)"
+    val odpPortAmountLabel = if (isEn) "Port Capacity (e.g. 8 / 16)" else "Jumlah Port (mis. 8 / 16)"
+    val odpAttenuationLabel = if (isEn) "Attenuation (dB)" else "Redaman / Attenuation (dB)"
+    val odpAddressLabel = if (isEn) "Location Address" else "Alamat Lokasi ODP"
+    val odpCoordinatesLabel = if (isEn) "Coordinates (Lat, Lng)" else "Koordinat (Lat, Lng)"
+    val odpCoverageLabel = if (isEn) "Coverage Radius (meters)" else "Radius Cakupan (meter)"
+    val pickCoordinatesMap = if (isEn) "Pick on Map" else "Pilih di Peta"
+    val deleteOdpConfirm = if (isEn) "Delete this ODP point permanently?" else "Hapus titik ODP ini secara permanen?"
 
     // GenieACS Labels
     val manageHosts = if (isEn) "GenieACS Servers" else "Server GenieACS"
