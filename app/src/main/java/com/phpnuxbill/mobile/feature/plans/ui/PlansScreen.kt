@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
@@ -54,7 +55,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -157,6 +157,16 @@ fun PlansScreen(
         return
     }
 
+    val filterTypes = remember(metadata.supportedPlanTypes, strings.all) {
+        buildList {
+            add("All" to strings.all)
+            metadata.supportedPlanTypes.forEach { t ->
+                val displayLabel = if (t.equals("PPPOE", ignoreCase = true)) "PPPoE" else t
+                add(t to displayLabel)
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -239,14 +249,7 @@ fun PlansScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val types = listOf(
-                        "All" to strings.all,
-                        "Hotspot" to "Hotspot",
-                        "PPPOE" to "PPPoE",
-                        "VPN" to "VPN",
-                        "Balance" to "Balance"
-                    )
-                    items(types) { (key, label) ->
+                    items(filterTypes) { (key, label) ->
                         FilterChip(
                             selected = typeFilter.equals(key, ignoreCase = true),
                             onClick = { viewModel.onPlanTypeFilterChanged(key) },
@@ -365,11 +368,16 @@ private fun PlanCardItem(
                     text = if (isBalance) {
                         plan.billingLabel
                     } else {
-                        "${plan.validity} ${plan.validityUnit} • ${if (plan.isRadius) "Radius" else plan.routers}"
+                        val driverSuffix = if (plan.device.isNotBlank() && !plan.isRadius) " • ${plan.device}" else ""
+                        "${plan.validity} ${plan.validityUnit} • ${if (plan.isRadius) "Radius" else plan.routers}$driverSuffix"
                     },
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = formatMoney(currencyCode, plan.price),
                     style = MaterialTheme.typography.titleMedium,
@@ -426,6 +434,7 @@ private fun FullScreenPlanForm(
     onClose: () -> Unit
 ) {
     val strings = LocalAppStrings.current
+    val isEn = strings.langCode == "en"
     var bwExpanded by remember { mutableStateOf(false) }
     var unitExpanded by remember { mutableStateOf(false) }
     var routerExpanded by remember { mutableStateOf(false) }
@@ -435,7 +444,18 @@ private fun FullScreenPlanForm(
     val isBalance = form.type.equals("Balance", ignoreCase = true)
     val isHotspot = form.type.equals("Hotspot", ignoreCase = true)
     val isPppoeOrVpn = form.type.equals("PPPOE", ignoreCase = true) || form.type.equals("VPN", ignoreCase = true)
+    val isStaticDevice = form.device.equals("MikrotikStatic", ignoreCase = true)
     val selectedBw = metadata.bandwidths.find { it.id == form.idBw }
+    val formPlanTypes = remember(metadata.supportedPlanTypes) {
+        metadata.supportedPlanTypes.ifEmpty { listOf("Hotspot", "PPPOE", "Balance") }
+    }
+    val ipPoolLabelText = remember(metadata.supportsVpn, isStaticDevice, isEn) {
+        if (isStaticDevice) {
+            if (isEn) "IP Pool (Optional for MikrotikStatic)" else "IP Pool (Opsional utk MikrotikStatic)"
+        } else {
+            labels.ipPoolLabelFor(metadata.supportsVpn)
+        }
+    }
 
     AppScreenScaffold(
         title = if (form.isEdit) labels.editPlan else labels.addPlan,
@@ -499,16 +519,16 @@ private fun FullScreenPlanForm(
                 }
             }
 
-            // Tipe Paket (Hanya dapat diubah saat Tambah Baru)
+            // Tipe Paket (Dinamis mengikuti ENUM aktual tbl_plans.type di server)
             if (!form.isEdit) {
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                    val types = listOf("Hotspot", "PPPOE", "VPN", "Balance")
-                    types.forEachIndexed { idx, t ->
+                    formPlanTypes.forEachIndexed { idx, t ->
+                        val displayLabel = if (t.equals("PPPOE", ignoreCase = true)) "PPPoE" else t
                         SegmentedButton(
                             selected = form.type.equals(t, ignoreCase = true),
                             onClick = { onTypeChanged(t) },
-                            shape = SegmentedButtonDefaults.itemShape(idx, types.size),
-                            label = { Text(t, maxLines = 1) }
+                            shape = SegmentedButtonDefaults.itemShape(idx, formPlanTypes.size),
+                            label = { Text(displayLabel, maxLines = 1) }
                         )
                     }
                 }
@@ -716,7 +736,7 @@ private fun FullScreenPlanForm(
                     }
                 }
 
-                // IP Pool untuk PPPoE & VPN
+                // IP Pool untuk PPPoE (dan VPN jika didukung server; opsional untuk plugin MikrotikStatic)
                 if (isPppoeOrVpn) {
                     val matchingPools = remember(metadata.pools, form.routers, form.isRadius) {
                         if (form.isRadius) metadata.pools
@@ -728,10 +748,10 @@ private fun FullScreenPlanForm(
                         onExpandedChange = { poolExpanded = !poolExpanded }
                     ) {
                         OutlinedTextField(
-                            value = form.pool.ifBlank { labels.ipPoolLabel },
+                            value = form.pool.ifBlank { ipPoolLabelText },
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text(labels.ipPoolLabel) },
+                            label = { Text(ipPoolLabelText) },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = poolExpanded) },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -742,6 +762,15 @@ private fun FullScreenPlanForm(
                             expanded = poolExpanded,
                             onDismissRequest = { poolExpanded = false }
                         ) {
+                            if (isStaticDevice) {
+                                DropdownMenuItem(
+                                    text = { Text(if (isEn) "- None (Static IP Binding) -" else "- Tanpa Pool (IP Statis) -") },
+                                    onClick = {
+                                        onUpdate { it.copy(pool = "") }
+                                        poolExpanded = false
+                                    }
+                                )
+                            }
                             matchingPools.forEach { pl ->
                                 DropdownMenuItem(
                                     text = { Text("${pl.poolName} (${pl.rangeIp})") },
@@ -806,7 +835,7 @@ private fun FullScreenPlanForm(
                     }
                 }
 
-                // Pilihan Device Driver (system/devices/)
+                // Pilihan Device Driver (dinamis dari folder system/devices/ server)
                 ExposedDropdownMenuBox(
                     expanded = deviceExpanded,
                     onExpandedChange = { deviceExpanded = !deviceExpanded }
@@ -833,6 +862,38 @@ private fun FullScreenPlanForm(
                                     onUpdate { it.copy(device = dev) }
                                     deviceExpanded = false
                                 }
+                            )
+                        }
+                    }
+                }
+
+                // Info kontekstual khusus plugin opsional MikrotikStatic (hanya tampil jika terpasang & dipilih)
+                if (isStaticDevice) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = if (isEn) {
+                                    "MikrotikStatic plugin active: binds customer's Static IP (PPPoE IP) via /queue/simple and isolates expired users using firewall address-list \"Expired\"."
+                                } else {
+                                    "Plugin MikrotikStatic aktif: mengikat IP Statis (PPPoE IP) pelanggan lewat /queue/simple dan isolir otomatis ke firewall address-list \"Expired\"."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
                         }
                     }
