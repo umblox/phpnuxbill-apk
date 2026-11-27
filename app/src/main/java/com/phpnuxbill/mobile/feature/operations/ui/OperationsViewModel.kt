@@ -17,6 +17,7 @@ import com.phpnuxbill.mobile.feature.operations.model.CouponFormState
 import com.phpnuxbill.mobile.feature.operations.model.CouponItem
 import com.phpnuxbill.mobile.feature.operations.model.DbStatusData
 import com.phpnuxbill.mobile.feature.operations.model.FinancialReportData
+import com.phpnuxbill.mobile.feature.operations.model.MessageLogsData
 import com.phpnuxbill.mobile.feature.operations.model.MessageSendFormState
 import com.phpnuxbill.mobile.feature.operations.model.NetworkMapData
 import com.phpnuxbill.mobile.feature.operations.model.NotificationTemplateItem
@@ -83,9 +84,17 @@ class OperationsViewModel(
     private val _mapState = MutableStateFlow<UiState<NetworkMapData>>(UiState.Idle)
     val mapState: StateFlow<UiState<NetworkMapData>> = _mapState.asStateFlow()
 
-    // Pesan & Halaman Statis
+    // Pesan, Riwayat Pesan (tbl_message_logs) & Halaman Statis
     private val _messageForm = MutableStateFlow(MessageSendFormState())
     val messageForm: StateFlow<MessageSendFormState> = _messageForm.asStateFlow()
+    private val _messageLogsState = MutableStateFlow<UiState<MessageLogsData>>(UiState.Idle)
+    val messageLogsState: StateFlow<UiState<MessageLogsData>> = _messageLogsState.asStateFlow()
+    private val _messageLogTypeFilter = MutableStateFlow("all")
+    val messageLogTypeFilter: StateFlow<String> = _messageLogTypeFilter.asStateFlow()
+    private val _messageLogStatusFilter = MutableStateFlow("all")
+    val messageLogStatusFilter: StateFlow<String> = _messageLogStatusFilter.asStateFlow()
+    private val _messageLogSearch = MutableStateFlow("")
+    val messageLogSearch: StateFlow<String> = _messageLogSearch.asStateFlow()
     private val _staticPagesState = MutableStateFlow<UiState<List<StaticPageItem>>>(UiState.Idle)
     val staticPagesState: StateFlow<UiState<List<StaticPageItem>>> = _staticPagesState.asStateFlow()
     private val _editingPage = MutableStateFlow<StaticPageItem?>(null)
@@ -114,7 +123,6 @@ class OperationsViewModel(
     val bannerMessage: StateFlow<String?> = _bannerMessage.asStateFlow()
 
     init {
-
         viewModelScope.launch {
             _reportSearch.drop(1).debounce(250L).distinctUntilChanged().collect { loadFinancialReports() }
         }
@@ -124,6 +132,9 @@ class OperationsViewModel(
         viewModelScope.launch {
             _couponSearch.drop(1).debounce(250L).distinctUntilChanged().collect { loadCoupons() }
         }
+        viewModelScope.launch {
+            _messageLogSearch.drop(1).debounce(250L).distinctUntilChanged().collect { loadMessageLogs() }
+        }
     }
 
     fun clearBanner() {
@@ -131,35 +142,39 @@ class OperationsViewModel(
     }
 
     fun ensureReportsLoaded() {
-    if (_reportState.value is UiState.Idle) loadFinancialReports()
-}
-
-fun ensurePgLoaded() {
-    if (_pgState.value is UiState.Idle) loadPgTransactions()
-}
-
-fun ensureCouponsLoaded() {
-    if (_couponsState.value is UiState.Idle) loadCoupons()
-}
-
-fun ensureAssetsLoaded() {
-    if (_assetsState.value is UiState.Idle) loadAssets()
-}
-
-fun ensureMapLoaded() {
-    if (_mapState.value is UiState.Idle) loadNetworkMap()
-}
-
-fun ensureStaticPagesLoaded() {
-    if (_staticPagesState.value is UiState.Idle) loadStaticPages()
-}
-
-fun ensureWebSettingsLoaded() {
-    if (!webSettingsLoaded) {
-        webSettingsLoaded = true
-        loadWebSettings()
+        if (_reportState.value is UiState.Idle) loadFinancialReports()
     }
-}
+
+    fun ensurePgLoaded() {
+        if (_pgState.value is UiState.Idle) loadPgTransactions()
+    }
+
+    fun ensureCouponsLoaded() {
+        if (_couponsState.value is UiState.Idle) loadCoupons()
+    }
+
+    fun ensureAssetsLoaded() {
+        if (_assetsState.value is UiState.Idle) loadAssets()
+    }
+
+    fun ensureMapLoaded() {
+        if (_mapState.value is UiState.Idle) loadNetworkMap()
+    }
+
+    fun ensureMessageLogsLoaded() {
+        if (_messageLogsState.value is UiState.Idle) loadMessageLogs()
+    }
+
+    fun ensureStaticPagesLoaded() {
+        if (_staticPagesState.value is UiState.Idle) loadStaticPages()
+    }
+
+    fun ensureWebSettingsLoaded() {
+        if (!webSettingsLoaded) {
+            webSettingsLoaded = true
+            loadWebSettings()
+        }
+    }
 
     // -------------------------------------------------------------------------
     // LAPORAN KEUANGAN
@@ -431,7 +446,7 @@ fun ensureWebSettingsLoaded() {
     }
 
     // -------------------------------------------------------------------------
-    // PESAN & HALAMAN STATIS
+    // PESAN, RIWAYAT PESAN (tbl_message_logs) & HALAMAN STATIS
     // -------------------------------------------------------------------------
     fun updateMessageForm(block: (MessageSendFormState) -> MessageSendFormState) = _messageForm.update(block)
 
@@ -444,12 +459,54 @@ fun ensureWebSettingsLoaded() {
                 is ApiResult.Success -> {
                     _messageForm.update { it.copy(isSending = false, message = "") }
                     _bannerMessage.value = res.message
+                    if (_messageLogsState.value !is UiState.Idle) {
+                        loadMessageLogs(isPullRefresh = true)
+                    }
                 }
                 is ApiResult.Error -> {
                     _messageForm.update { it.copy(isSending = false) }
                     _bannerMessage.value = res.message
+                    if (_messageLogsState.value !is UiState.Idle) {
+                        loadMessageLogs(isPullRefresh = true)
+                    }
                 }
             }
+        }
+    }
+
+    fun onMessageLogTypeFilterChanged(type: String) {
+        _messageLogTypeFilter.value = type
+        loadMessageLogs()
+    }
+
+    fun onMessageLogStatusFilterChanged(status: String) {
+        _messageLogStatusFilter.value = status
+        loadMessageLogs()
+    }
+
+    fun onMessageLogSearchChanged(q: String) {
+        _messageLogSearch.value = q
+    }
+
+    fun loadMessageLogs(isPullRefresh: Boolean = false) {
+        viewModelScope.launch {
+            if (isPullRefresh) _isRefreshing.value = true
+            else if (_messageLogsState.value !is UiState.Success) _messageLogsState.value = UiState.Loading
+
+            when (
+                val res = repository.getMessageLogs(
+                    messageType = _messageLogTypeFilter.value,
+                    status = _messageLogStatusFilter.value,
+                    search = _messageLogSearch.value
+                )
+            ) {
+                is ApiResult.Success -> _messageLogsState.value = UiState.Success(res.data)
+                is ApiResult.Error -> {
+                    if (res.isUnauthorized) sessionStorage.clearActiveToken()
+                    else _messageLogsState.value = UiState.Error(res.message)
+                }
+            }
+            _isRefreshing.value = false
         }
     }
 
