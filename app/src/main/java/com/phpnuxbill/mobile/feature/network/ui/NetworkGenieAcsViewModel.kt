@@ -18,8 +18,12 @@ import com.phpnuxbill.mobile.feature.network.model.GenieAcsWlanEditState
 import com.phpnuxbill.mobile.feature.network.model.GenieAcsWlanItem
 import com.phpnuxbill.mobile.feature.network.model.IpPoolFormState
 import com.phpnuxbill.mobile.feature.network.model.IpPoolItem
+import com.phpnuxbill.mobile.feature.network.model.OdpFormState
+import com.phpnuxbill.mobile.feature.network.model.OdpItem
 import com.phpnuxbill.mobile.feature.network.model.OnlineSessionUser
 import com.phpnuxbill.mobile.feature.network.model.OnlineUsersSummary
+import com.phpnuxbill.mobile.feature.network.model.PortPoolFormState
+import com.phpnuxbill.mobile.feature.network.model.PortPoolItem
 import com.phpnuxbill.mobile.feature.network.model.RouterFormState
 import com.phpnuxbill.mobile.feature.network.model.RouterItem
 import com.phpnuxbill.mobile.feature.network.model.RouterLiveStatus
@@ -37,6 +41,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 @OptIn(FlowPreview::class)
 class NetworkGenieAcsViewModel(
@@ -45,10 +50,10 @@ class NetworkGenieAcsViewModel(
 ) : ViewModel() {
 
     // =========================================================================
-    // MIKROTIK & NETWORK STATES
+    // MIKROTIK, ROUTER, IP POOL, PORT POOL & ODP STATES
     // =========================================================================
 
-    private val _selectedMikrotikTab = MutableStateFlow(0) // 0=Live, 1=Online, 2=Routers/Pools, 3=Logs
+    private val _selectedMikrotikTab = MutableStateFlow(0) // 0=Live, 1=Online, 2=Routers/Pools/ODP, 3=Logs
     val selectedMikrotikTab: StateFlow<Int> = _selectedMikrotikTab.asStateFlow()
 
     private val _routers = MutableStateFlow<List<RouterItem>>(emptyList())
@@ -78,6 +83,12 @@ class NetworkGenieAcsViewModel(
     private val _ipPools = MutableStateFlow<List<IpPoolItem>>(emptyList())
     val ipPools: StateFlow<List<IpPoolItem>> = _ipPools.asStateFlow()
 
+    private val _portPools = MutableStateFlow<List<PortPoolItem>>(emptyList())
+    val portPools: StateFlow<List<PortPoolItem>> = _portPools.asStateFlow()
+
+    private val _odps = MutableStateFlow<List<OdpItem>>(emptyList())
+    val odps: StateFlow<List<OdpItem>> = _odps.asStateFlow()
+
     private val _routerLogs = MutableStateFlow<List<RouterLogEntry>>(emptyList())
     val routerLogs: StateFlow<List<RouterLogEntry>> = _routerLogs.asStateFlow()
 
@@ -86,6 +97,12 @@ class NetworkGenieAcsViewModel(
 
     private val _poolForm = MutableStateFlow(IpPoolFormState())
     val poolForm: StateFlow<IpPoolFormState> = _poolForm.asStateFlow()
+
+    private val _portPoolForm = MutableStateFlow(PortPoolFormState())
+    val portPoolForm: StateFlow<PortPoolFormState> = _portPoolForm.asStateFlow()
+
+    private val _odpForm = MutableStateFlow(OdpFormState())
+    val odpForm: StateFlow<OdpFormState> = _odpForm.asStateFlow()
 
     // =========================================================================
     // GENIEACS TR-069 STATES
@@ -314,8 +331,9 @@ class NetworkGenieAcsViewModel(
         }
     }
 
-    fun loadRoutersAndPools() {
+    fun loadRoutersAndPools(isPullRefresh: Boolean = false) {
         viewModelScope.launch {
+            if (isPullRefresh) _isRefreshing.value = true
             when (val rRes = repository.getRouters()) {
                 is ApiResult.Success -> {
                     _routers.value = rRes.data
@@ -323,16 +341,34 @@ class NetworkGenieAcsViewModel(
                         _selectedRouterId.value = rRes.data.first().id
                     }
                 }
-                is ApiResult.Error -> {}
+                is ApiResult.Error -> {
+                    if (rRes.isUnauthorized) {
+                        sessionStorage.clearActiveToken()
+                        _isRefreshing.value = false
+                        return@launch
+                    }
+                }
             }
             when (val pRes = repository.getIpPools()) {
                 is ApiResult.Success -> _ipPools.value = pRes.data
                 is ApiResult.Error -> {}
             }
+            when (val ppRes = repository.getPortPools()) {
+                is ApiResult.Success -> _portPools.value = ppRes.data
+                is ApiResult.Error -> {}
+            }
+            when (val oRes = repository.getOdps()) {
+                is ApiResult.Success -> _odps.value = oRes.data
+                is ApiResult.Error -> {}
+            }
+            _isRefreshing.value = false
         }
     }
 
-    // CRUD Router
+    // =========================================================================
+    // CRUD ROUTER
+    // =========================================================================
+
     fun openAddRouterForm() {
         _routerForm.value = RouterFormState(isOpen = true, isEdit = false)
     }
@@ -390,7 +426,10 @@ class NetworkGenieAcsViewModel(
         }
     }
 
-    // CRUD IP Pool
+    // =========================================================================
+    // CRUD IP POOL (tbl_pool)
+    // =========================================================================
+
     fun openAddPoolForm() {
         _poolForm.value = IpPoolFormState(
             isOpen = true,
@@ -450,6 +489,168 @@ class NetworkGenieAcsViewModel(
     }
 
     // =========================================================================
+    // CRUD PORT POOL (tbl_port_pool — SELARAS pool.php)
+    // =========================================================================
+
+    fun openAddPortPoolForm() {
+        val usedRouters = _portPools.value.map { it.routers.lowercase() }.toSet()
+        val firstUnusedRouter = _routers.value.firstOrNull { !usedRouters.contains(it.name.lowercase()) }?.name
+            ?: _routers.value.firstOrNull()?.name.orEmpty()
+
+        _portPoolForm.value = PortPoolFormState(
+            isOpen = true,
+            isEdit = false,
+            routers = firstUnusedRouter
+        )
+    }
+
+    fun openEditPortPoolForm(p: PortPoolItem) {
+        _portPoolForm.value = PortPoolFormState(
+            isOpen = true,
+            isEdit = true,
+            id = p.id,
+            portName = p.portName,
+            publicIp = p.publicIp,
+            rangePort = p.rangePort,
+            routers = p.routers
+        )
+    }
+
+    fun closePortPoolForm() {
+        _portPoolForm.update { it.copy(isOpen = false, error = null) }
+    }
+
+    fun updatePortPoolForm(block: (PortPoolFormState) -> PortPoolFormState) {
+        _portPoolForm.update { block(it).copy(error = null) }
+    }
+
+    fun submitPortPoolForm() {
+        val form = _portPoolForm.value
+        if (form.isSaving) return
+        val isEn = sessionStorage.getCurrentSession().languageCode == "en"
+        val cleanName = form.portName.trim()
+        if (cleanName.length !in 3..30) {
+            _portPoolForm.update {
+                it.copy(
+                    error = if (isEn) "Port pool name must be between 3 and 30 characters."
+                    else "Nama Port Pool harus 3 sampai 30 karakter."
+                )
+            }
+            return
+        }
+        if (form.rangePort.isBlank() || form.routers.isBlank()) {
+            _portPoolForm.update {
+                it.copy(
+                    error = if (isEn) "Port range and router are required."
+                    else "Rentang Port dan Router wajib diisi."
+                )
+            }
+            return
+        }
+
+        viewModelScope.launch {
+            _portPoolForm.update { it.copy(isSaving = true, error = null) }
+            when (val res = repository.savePortPool(form)) {
+                is ApiResult.Success -> {
+                    _portPoolForm.update { it.copy(isSaving = false, isOpen = false) }
+                    _bannerMessage.value = res.message
+                    loadRoutersAndPools()
+                }
+                is ApiResult.Error -> {
+                    _portPoolForm.update { it.copy(isSaving = false, error = res.message) }
+                }
+            }
+        }
+    }
+
+    fun deletePortPool(portPoolId: Int) {
+        viewModelScope.launch {
+            when (val res = repository.deletePortPool(portPoolId)) {
+                is ApiResult.Success -> {
+                    _bannerMessage.value = res.message
+                    loadRoutersAndPools()
+                }
+                is ApiResult.Error -> _bannerMessage.value = res.message
+            }
+        }
+    }
+
+    // =========================================================================
+    // CRUD ODP / OPTICAL DISTRIBUTION POINT (tbl_odps — SELARAS odp.php)
+    // =========================================================================
+
+    fun openAddOdpForm() {
+        _odpForm.value = OdpFormState(
+            isOpen = true,
+            isEdit = false
+        )
+    }
+
+    fun openEditOdpForm(odp: OdpItem) {
+        _odpForm.value = OdpFormState(
+            isOpen = true,
+            isEdit = true,
+            id = odp.id,
+            name = odp.name,
+            portAmount = odp.portAmount.toString(),
+            attenuation = String.format(Locale.US, "%.2f", odp.attenuation),
+            address = odp.address,
+            coordinates = odp.coordinates,
+            coverage = odp.coverage.toString()
+        )
+    }
+
+    fun closeOdpForm() {
+        _odpForm.update { it.copy(isOpen = false, error = null) }
+    }
+
+    fun updateOdpForm(block: (OdpFormState) -> OdpFormState) {
+        _odpForm.update { block(it).copy(error = null) }
+    }
+
+    fun submitOdpForm() {
+        val form = _odpForm.value
+        if (form.isSaving) return
+        val isEn = sessionStorage.getCurrentSession().languageCode == "en"
+        val cleanName = form.name.trim()
+        if (cleanName.length !in 5..15) {
+            _odpForm.update {
+                it.copy(
+                    error = if (isEn) "ODP name must be between 5 and 15 characters."
+                    else "Nama ODP harus 5 sampai 15 karakter."
+                )
+            }
+            return
+        }
+
+        viewModelScope.launch {
+            _odpForm.update { it.copy(isSaving = true, error = null) }
+            when (val res = repository.saveOdp(form)) {
+                is ApiResult.Success -> {
+                    _odpForm.update { it.copy(isSaving = false, isOpen = false) }
+                    _bannerMessage.value = res.message
+                    loadRoutersAndPools()
+                }
+                is ApiResult.Error -> {
+                    _odpForm.update { it.copy(isSaving = false, error = res.message) }
+                }
+            }
+        }
+    }
+
+    fun deleteOdp(odpId: Int) {
+        viewModelScope.launch {
+            when (val res = repository.deleteOdp(odpId)) {
+                is ApiResult.Success -> {
+                    _bannerMessage.value = res.message
+                    loadRoutersAndPools()
+                }
+                is ApiResult.Error -> _bannerMessage.value = res.message
+            }
+        }
+    }
+
+    // =========================================================================
     // GENIEACS TR-069 OPERATIONS
     // =========================================================================
 
@@ -462,7 +663,7 @@ class NetworkGenieAcsViewModel(
         loadGenieAcsDevices()
     }
 
-fun onSelectGenieHost(hostId: String) {
+    fun onSelectGenieHost(hostId: String) {
         if (_selectedGenieHostId.value == hostId) return
         _selectedGenieHostId.value = hostId
         _genieStatusFilter.value = "all"
