@@ -82,7 +82,13 @@ class PlanBandwidthViewModel(
     // =========================================================================
 
     fun onPlanTypeFilterChanged(type: String) {
-        _planTypeFilter.value = type
+        val allowed = _metadata.value.supportedPlanTypes
+        val normalized = if (type.equals("All", ignoreCase = true)) {
+            "All"
+        } else {
+            allowed.firstOrNull { it.equals(type, ignoreCase = true) } ?: "All"
+        }
+        _planTypeFilter.value = normalized
         loadPlansAndMetadata()
     }
 
@@ -112,8 +118,19 @@ class PlanBandwidthViewModel(
 
             when (val res = repository.getPlansAndMetadata(typeFilter = _planTypeFilter.value)) {
                 is ApiResult.Success -> {
+                    val meta = res.data.second
                     cachedAllPlans = res.data.first
-                    _metadata.value = res.data.second
+                    _metadata.value = meta
+
+                    val currentFilter = _planTypeFilter.value
+                    if (!currentFilter.equals("All", ignoreCase = true) &&
+                        meta.supportedPlanTypes.none { it.equals(currentFilter, ignoreCase = true) }
+                    ) {
+                        _planTypeFilter.value = "All"
+                        loadPlansAndMetadata(isPullRefresh = isPullRefresh)
+                        return@launch
+                    }
+
                     applyPlanSearchFilter()
                 }
                 is ApiResult.Error -> {
@@ -127,22 +144,29 @@ class PlanBandwidthViewModel(
 
     fun openAddPlanForm() {
         val meta = _metadata.value
+        val defaultType = meta.supportedPlanTypes.firstOrNull { it.equals("Hotspot", ignoreCase = true) }
+            ?: meta.supportedPlanTypes.firstOrNull()
+            ?: "Hotspot"
         val defaultBw = meta.bandwidths.firstOrNull()?.id ?: 0
         val defaultRouter = meta.routers.firstOrNull()?.name.orEmpty()
         val defaultPool = meta.pools.firstOrNull()?.poolName.orEmpty()
+        val defaultDevice = defaultDeviceFor(defaultType, isRadius = false, availableDevices = meta.devices)
+        val defaultPrepaid = if (defaultType.equals("PPPOE", ignoreCase = true)) "no" else "yes"
 
         _planForm.value = PlanFormState(
             isOpen = true,
             isEdit = false,
-            type = "Hotspot",
+            type = defaultType,
+            prepaid = defaultPrepaid,
             idBw = defaultBw,
             routers = defaultRouter,
             pool = defaultPool,
-            device = "MikrotikHotspot"
+            device = defaultDevice
         )
     }
 
     fun openEditPlanForm(item: PlanItem) {
+        val availableDevices = _metadata.value.devices
         _planForm.value = PlanFormState(
             isOpen = true,
             isEdit = true,
@@ -160,7 +184,7 @@ class PlanBandwidthViewModel(
             routers = item.routers,
             isRadius = item.isRadius,
             pool = item.pool,
-            device = item.device.ifBlank { defaultDeviceFor(item.type, item.isRadius) },
+            device = item.device.ifBlank { defaultDeviceFor(item.type, item.isRadius, availableDevices) },
             typebp = item.typebp,
             limitType = item.limitType,
             timeLimit = item.timeLimit.toString(),
@@ -182,11 +206,14 @@ class PlanBandwidthViewModel(
     }
 
     fun onPlanFormTypeChanged(newType: String) {
+        val meta = _metadata.value
+        val resolvedType = meta.supportedPlanTypes.firstOrNull { it.equals(newType, ignoreCase = true) }
+            ?: return
         _planForm.update { current ->
-            val nextDevice = defaultDeviceFor(newType, current.isRadius)
-            val nextPrepaid = if (newType.equals("PPPOE", ignoreCase = true) && !current.isEdit) "no" else "yes"
+            val nextDevice = defaultDeviceFor(resolvedType, current.isRadius, meta.devices)
+            val nextPrepaid = if (resolvedType.equals("PPPOE", ignoreCase = true) && !current.isEdit) "no" else "yes"
             current.copy(
-                type = newType,
+                type = resolvedType,
                 device = nextDevice,
                 prepaid = nextPrepaid,
                 error = null
@@ -195,8 +222,9 @@ class PlanBandwidthViewModel(
     }
 
     fun onPlanFormRadiusToggled(isRadius: Boolean) {
+        val availableDevices = _metadata.value.devices
         _planForm.update { current ->
-            val nextDevice = defaultDeviceFor(current.type, isRadius)
+            val nextDevice = defaultDeviceFor(current.type, isRadius, availableDevices)
             current.copy(
                 isRadius = isRadius,
                 device = nextDevice,
@@ -412,14 +440,22 @@ class PlanBandwidthViewModel(
         }
     }
 
-    private fun defaultDeviceFor(type: String, isRadius: Boolean): String {
+    private fun defaultDeviceFor(
+        type: String,
+        isRadius: Boolean,
+        availableDevices: List<String> = emptyList()
+    ): String {
+        if (type.equals("BALANCE", ignoreCase = true)) return ""
         if (isRadius) return "Radius"
-        return when (type.uppercase()) {
+        val preferred = when (type.uppercase()) {
             "PPPOE" -> "MikrotikPppoe"
             "VPN" -> "MikrotikVpn"
-            "BALANCE" -> ""
             else -> "MikrotikHotspot"
         }
+        if (availableDevices.isEmpty() || availableDevices.any { it.equals(preferred, ignoreCase = true) }) {
+            return preferred
+        }
+        return availableDevices.firstOrNull() ?: preferred
     }
 
     private fun formatCleanNumber(v: Double): String {
