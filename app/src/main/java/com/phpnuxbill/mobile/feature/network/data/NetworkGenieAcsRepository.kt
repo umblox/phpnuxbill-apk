@@ -17,15 +17,19 @@ import com.phpnuxbill.mobile.feature.network.model.GenieAcsWlanItem
 import com.phpnuxbill.mobile.feature.network.model.InterfaceTrafficItem
 import com.phpnuxbill.mobile.feature.network.model.IpPoolFormState
 import com.phpnuxbill.mobile.feature.network.model.IpPoolItem
+import com.phpnuxbill.mobile.feature.network.model.OdpFormState
+import com.phpnuxbill.mobile.feature.network.model.OdpItem
 import com.phpnuxbill.mobile.feature.network.model.OnlineSessionUser
 import com.phpnuxbill.mobile.feature.network.model.OnlineUsersSummary
+import com.phpnuxbill.mobile.feature.network.model.PortPoolFormState
+import com.phpnuxbill.mobile.feature.network.model.PortPoolItem
 import com.phpnuxbill.mobile.feature.network.model.RouterFormState
 import com.phpnuxbill.mobile.feature.network.model.RouterItem
 import com.phpnuxbill.mobile.feature.network.model.RouterLiveStatus
 import com.phpnuxbill.mobile.feature.network.model.RouterLogEntry
 
 /**
- * Kontrak Repository Monitoring MikroTik & Manajemen GenieACS (SOLID - ISP)
+ * Kontrak Repository Monitoring MikroTik, ODP, Port Pool & Manajemen GenieACS (SOLID - ISP)
  */
 interface NetworkGenieAcsRepository {
     // MikroTik, Router & IP Pool
@@ -35,6 +39,17 @@ interface NetworkGenieAcsRepository {
     suspend fun getIpPools(): ApiResult<List<IpPoolItem>>
     suspend fun saveIpPool(form: IpPoolFormState): ApiResult<String>
     suspend fun deleteIpPool(poolId: Int): ApiResult<String>
+
+    // Port Pool (tbl_port_pool)
+    suspend fun getPortPools(search: String = ""): ApiResult<List<PortPoolItem>>
+    suspend fun savePortPool(form: PortPoolFormState): ApiResult<String>
+    suspend fun deletePortPool(portPoolId: Int): ApiResult<String>
+
+    // ODP / Optical Distribution Point (tbl_odps)
+    suspend fun getOdps(search: String = ""): ApiResult<List<OdpItem>>
+    suspend fun saveOdp(form: OdpFormState): ApiResult<String>
+    suspend fun deleteOdp(odpId: Int): ApiResult<String>
+
     suspend fun getMikrotikLive(routerId: Int = 0, interfaceName: String = ""): ApiResult<List<RouterLiveStatus>>
     suspend fun getOnlineUsers(routerId: Int = 0): ApiResult<OnlineUsersSummary>
     suspend fun kickOnlineUser(routerName: String, service: String, rosId: String, username: String): ApiResult<String>
@@ -166,6 +181,123 @@ class RemoteNetworkGenieAcsRepository(
             val res = networkGateway.postForm(
                 action = "admin_pool_delete",
                 fields = mapOf("id" to poolId.toString())
+            )
+        ) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(data = res.message, message = res.message)
+        }
+    }
+
+    // =========================================================================
+    // PORT POOL (tbl_port_pool)
+    // =========================================================================
+
+    override suspend fun getPortPools(search: String): ApiResult<List<PortPoolItem>> {
+        val params = buildMap {
+            if (search.isNotBlank()) put("search", search.trim())
+        }
+        return when (val res = networkGateway.get(action = "admin_port_pools", params = params)) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> {
+                val list = mutableListOf<PortPoolItem>()
+                res.data?.takeIf { it.isJsonArray }?.asJsonArray?.forEach { el ->
+                    val o = el.asObjOrNull() ?: return@forEach
+                    list.add(
+                        PortPoolItem(
+                            id = o.intVal("id"),
+                            portName = o.str("port_name"),
+                            publicIp = o.str("public_ip"),
+                            rangePort = o.str("range_port"),
+                            routers = o.str("routers")
+                        )
+                    )
+                }
+                ApiResult.Success(data = list, message = res.message)
+            }
+        }
+    }
+
+    override suspend fun savePortPool(form: PortPoolFormState): ApiResult<String> {
+        val payload = mapOf<String, Any>(
+            "id" to form.id,
+            "port_name" to form.portName.trim(),
+            "public_ip" to form.publicIp.trim(),
+            "range_port" to form.rangePort.trim(),
+            "routers" to form.routers.trim()
+        )
+        return when (val res = networkGateway.postJson(action = "admin_port_pool_save", body = payload)) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(data = res.message, message = res.message)
+        }
+    }
+
+    override suspend fun deletePortPool(portPoolId: Int): ApiResult<String> {
+        return when (
+            val res = networkGateway.postForm(
+                action = "admin_port_pool_delete",
+                fields = mapOf("id" to portPoolId.toString())
+            )
+        ) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(data = res.message, message = res.message)
+        }
+    }
+
+    // =========================================================================
+    // ODP / OPTICAL DISTRIBUTION POINT (tbl_odps)
+    // =========================================================================
+
+    override suspend fun getOdps(search: String): ApiResult<List<OdpItem>> {
+        val params = buildMap {
+            if (search.isNotBlank()) put("search", search.trim())
+        }
+        return when (val res = networkGateway.get(action = "admin_odps", params = params)) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> {
+                val list = mutableListOf<OdpItem>()
+                res.data?.takeIf { it.isJsonArray }?.asJsonArray?.forEach { el ->
+                    val o = el.asObjOrNull() ?: return@forEach
+                    list.add(
+                        OdpItem(
+                            id = o.intVal("id"),
+                            name = o.str("name"),
+                            portAmount = o.intVal("port_amount"),
+                            attenuation = o.doubleVal("attenuation"),
+                            address = o.str("address"),
+                            coordinates = o.str("coordinates"),
+                            coverage = o.intVal("coverage")
+                        )
+                    )
+                }
+                ApiResult.Success(data = list, message = res.message)
+            }
+        }
+    }
+
+    override suspend fun saveOdp(form: OdpFormState): ApiResult<String> {
+        val attVal = form.attenuation.trim().replace(',', '.').toDoubleOrNull() ?: 0.0
+        val portVal = (form.portAmount.trim().toIntOrNull() ?: 0).coerceAtLeast(0)
+        val covVal = (form.coverage.trim().filter { it.isDigit() }.toIntOrNull() ?: 0).coerceAtLeast(0)
+        val payload = mapOf<String, Any>(
+            "id" to form.id,
+            "name" to form.name.trim(),
+            "port_amount" to portVal,
+            "attenuation" to attVal,
+            "address" to form.address.trim(),
+            "coordinates" to form.coordinates.trim(),
+            "coverage" to covVal
+        )
+        return when (val res = networkGateway.postJson(action = "admin_odp_save", body = payload)) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(data = res.message, message = res.message)
+        }
+    }
+
+    override suspend fun deleteOdp(odpId: Int): ApiResult<String> {
+        return when (
+            val res = networkGateway.postForm(
+                action = "admin_odp_delete",
+                fields = mapOf("id" to odpId.toString())
             )
         ) {
             is ApiResult.Error -> res
