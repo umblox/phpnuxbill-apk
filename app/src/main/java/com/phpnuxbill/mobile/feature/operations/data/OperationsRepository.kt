@@ -20,6 +20,8 @@ import com.phpnuxbill.mobile.feature.operations.model.DbTableStatusItem
 import com.phpnuxbill.mobile.feature.operations.model.FinancialReportData
 import com.phpnuxbill.mobile.feature.operations.model.GatewayBreakdownItem
 import com.phpnuxbill.mobile.feature.operations.model.MapPointItem
+import com.phpnuxbill.mobile.feature.operations.model.MessageLogItem
+import com.phpnuxbill.mobile.feature.operations.model.MessageLogsData
 import com.phpnuxbill.mobile.feature.operations.model.MessageSendFormState
 import com.phpnuxbill.mobile.feature.operations.model.NetworkMapData
 import com.phpnuxbill.mobile.feature.operations.model.NotificationTemplateItem
@@ -34,7 +36,7 @@ import com.phpnuxbill.mobile.feature.operations.model.SystemLogItem
 import com.phpnuxbill.mobile.feature.operations.model.WebServerSettings
 
 interface OperationsRepository {
-    // Reports, Messages & Static Pages
+    // Reports, Messages, Message Logs & Static Pages
     suspend fun getFinancialReports(
         startDate: String = "",
         endDate: String = "",
@@ -44,6 +46,13 @@ interface OperationsRepository {
     ): ApiResult<FinancialReportData>
 
     suspend fun sendMessage(form: MessageSendFormState): ApiResult<String>
+    suspend fun getMessageLogs(
+        messageType: String = "all",
+        status: String = "all",
+        search: String = "",
+        limit: Int = 100
+    ): ApiResult<MessageLogsData>
+
     suspend fun getStaticPages(): ApiResult<List<StaticPageItem>>
     suspend fun saveStaticPage(name: String, content: String): ApiResult<String>
 
@@ -161,6 +170,55 @@ class RemoteOperationsRepository(
         return when (val res = networkGateway.postForm(action = "admin_send_message", fields = fields)) {
             is ApiResult.Error -> res
             is ApiResult.Success -> ApiResult.Success(res.message, res.message)
+        }
+    }
+
+    override suspend fun getMessageLogs(
+        messageType: String,
+        status: String,
+        search: String,
+        limit: Int
+    ): ApiResult<MessageLogsData> {
+        val params = buildMap {
+            if (messageType.isNotBlank() && !messageType.equals("all", true)) {
+                put("message_type", messageType.trim())
+            }
+            if (status.isNotBlank() && !status.equals("all", true)) {
+                put("status", status.trim())
+            }
+            if (search.isNotBlank()) {
+                put("search", search.trim())
+            }
+            put("limit", limit.coerceIn(20, 300).toString())
+        }
+        return when (val res = networkGateway.get(action = "admin_message_logs", params = params)) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> {
+                val root = res.data.asObjOrNull()
+                val sumObj = root?.getAsJsonObject("summary")
+                val items = root?.getAsJsonArray("items")?.mapNotNull { el ->
+                    val o = el.asObjOrNull() ?: return@mapNotNull null
+                    MessageLogItem(
+                        id = o.intVal("id"),
+                        messageType = o.str("message_type").ifBlank { "-" },
+                        recipient = o.str("recipient").ifBlank { "-" },
+                        messageContent = o.str("message_content"),
+                        status = o.str("status"),
+                        errorMessage = o.str("error_message"),
+                        sentAt = o.str("sent_at")
+                    )
+                }.orEmpty()
+
+                ApiResult.Success(
+                    data = MessageLogsData(
+                        total = sumObj.intVal("total").let { if (it > 0) it else items.size },
+                        sentCount = sumObj.intVal("sent_count"),
+                        failedCount = sumObj.intVal("failed_count"),
+                        items = items
+                    ),
+                    message = res.message
+                )
+            }
         }
     }
 
@@ -305,7 +363,7 @@ class RemoteOperationsRepository(
             put("description", form.description.trim())
             put("max_usage", form.maxUsage.trim().toIntOrNull() ?: 0)
             put("min_order_amount", form.minOrderAmount.trim().toDoubleOrNull() ?: 0.0)
-            put("max_discount_amount", form.maxDiscountAmount.trim().toIntOrNull() ?: 0)
+            put("max_discount_amount", form.maxDiscountAmount.trim().toDoubleOrNull() ?: 0.0)
             put("status", form.status)
             if (form.startDate.isNotBlank()) put("start_date", form.startDate.trim())
             if (form.endDate.isNotBlank()) put("end_date", form.endDate.trim())
@@ -414,7 +472,7 @@ class RemoteOperationsRepository(
         }
     }
 
-override suspend fun getNetworkMapData(): ApiResult<NetworkMapData> {
+    override suspend fun getNetworkMapData(): ApiResult<NetworkMapData> {
         return when (val res = networkGateway.get(action = "admin_map_data")) {
             is ApiResult.Error -> res
             is ApiResult.Success -> {
@@ -564,12 +622,12 @@ override suspend fun getNetworkMapData(): ApiResult<NetworkMapData> {
                         MapPointItem(
                             id = o.intVal("id"),
                             title = if (o.str("asset_tag").isNotBlank()) "${o.str("name")} (${o.str("asset_tag")})" else o.str("name").ifBlank { "Asset" },
-subtitle = "${o.str("category")} • ${o.str("status").ifBlank { "Active" }} • ${o.str("condition").ifBlank { "Good" }}",
-category = "asset",
-lat = lat,
-lng = lng,
-status = o.str("status").ifBlank { "Active" },
-condition = o.str("condition").ifBlank { "Good" }
+                            subtitle = "${o.str("category")} • ${o.str("status").ifBlank { "Active" }} • ${o.str("condition").ifBlank { "Good" }}",
+                            category = "asset",
+                            lat = lat,
+                            lng = lng,
+                            status = o.str("status").ifBlank { "Active" },
+                            condition = o.str("condition").ifBlank { "Good" }
                         )
                     )
                 }
