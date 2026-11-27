@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -38,7 +37,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +50,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -295,6 +294,23 @@ fun FullScreenRechargeForm(
     val selectedCustomer = metadata.customers.find { it.id == form.customerId }
     val customerBalance = selectedCustomer?.balance ?: form.lockedCustomerBalance
 
+    val hasVpnPlans = remember(metadata.internetPlans) {
+        metadata.internetPlans.any { it.type.equals("VPN", ignoreCase = true) }
+    }
+    LaunchedEffect(hasVpnPlans, form.serviceType) {
+        if (!hasVpnPlans && form.serviceType.equals("VPN", ignoreCase = true)) {
+            onSelectServiceType("All")
+        }
+    }
+    val serviceTypes = remember(hasVpnPlans, strings.all) {
+        buildList {
+            add("Hotspot" to "Hotspot")
+            add("PPPoE" to "PPPoE")
+            if (hasVpnPlans) add("VPN" to "VPN")
+            add("All" to strings.all)
+        }
+    }
+
     // Daftar server/router yang memiliki paket sesuai tipe layanan
     val availableServers = remember(metadata.internetPlans, metadata.routers, form.serviceType) {
         val fromPlans = metadata.internetPlans
@@ -432,7 +448,7 @@ fun FullScreenRechargeForm(
                 onUnlock = onUnlockCustomer
             )
 
-            // 2. Tipe Layanan & Router Server (Selaras alur web plan/recharge)
+            // 2. Tipe Layanan & Router Server (Selaras alur web plan/recharge & paket aktual server)
             Surface(
                 shape = RoundedCornerShape(16.dp),
                 color = MaterialTheme.colorScheme.surface,
@@ -451,17 +467,11 @@ fun FullScreenRechargeForm(
                     )
 
                     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                        val types = listOf(
-                            "Hotspot" to "Hotspot",
-                            "PPPoE" to "PPPoE",
-                            "VPN" to "VPN",
-                            "All" to strings.all
-                        )
-                        types.forEachIndexed { idx, (key, title) ->
+                        serviceTypes.forEachIndexed { idx, (key, title) ->
                             SegmentedButton(
                                 selected = form.serviceType.equals(key, ignoreCase = true),
                                 onClick = { onSelectServiceType(key) },
-                                shape = SegmentedButtonDefaults.itemShape(idx, types.size),
+                                shape = SegmentedButtonDefaults.itemShape(idx, serviceTypes.size),
                                 icon = {},
                                 label = { Text(title, maxLines = 1, style = MaterialTheme.typography.labelSmall) }
                             )
