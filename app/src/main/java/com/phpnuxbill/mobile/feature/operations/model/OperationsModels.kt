@@ -3,7 +3,7 @@ package com.phpnuxbill.mobile.feature.operations.model
 import com.phpnuxbill.mobile.core.i18n.AppStrings
 
 // =========================================================================
-// 1. LAPORAN KEUANGAN, PESAN & HALAMAN STATIS (core_reports_messages.php)
+// 1. LAPORAN KEUANGAN, PESAN, RIWAYAT PESAN & HALAMAN STATIS (core_reports_messages.php)
 // =========================================================================
 
 data class GatewayBreakdownItem(
@@ -43,6 +43,23 @@ data class MessageSendFormState(
     val subject: String = "",
     val message: String = "",
     val isSending: Boolean = false
+)
+
+data class MessageLogItem(
+    val id: Int,
+    val messageType: String,
+    val recipient: String,
+    val messageContent: String,
+    val status: String,
+    val errorMessage: String,
+    val sentAt: String
+)
+
+data class MessageLogsData(
+    val total: Int = 0,
+    val sentCount: Int = 0,
+    val failedCount: Int = 0,
+    val items: List<MessageLogItem> = emptyList()
 )
 
 data class StaticPageItem(
@@ -333,8 +350,9 @@ class OperationsLabels(strings: AppStrings) {
     val assetCondition = if (isEn) "Condition" else "Kondisi"
     val assetNotes = if (isEn) "Technical Notes" else "Catatan Teknis"
 
-    // Messages & Static Pages
+    // Messages, Message Logs & Static Pages
     val tabBroadcastMsg = if (isEn) "Send Message" else "Kirim Pesan"
+    val tabMessageLogs = if (isEn) "Message Logs" else "Riwayat Pesan"
     val tabStaticPages = if (isEn) "Static Pages" else "Halaman Statis"
     val sendSingle = if (isEn) "Single Customer" else "Satu Pelanggan"
     val sendBroadcast = if (isEn) "Broadcast Group" else "Broadcast Massal"
@@ -343,6 +361,11 @@ class OperationsLabels(strings: AppStrings) {
     val quickTagsLabel = if (isEn) "Tap to insert variable:" else "Ketuk untuk sisipkan tag:"
     val sendNow = if (isEn) "Send Message" else "Kirim Pesan Sekarang"
     val editPageTitle = if (isEn) "Edit HTML Page" else "Edit Halaman HTML"
+    val msgLogsSearchHint = if (isEn) "Search recipient, message, or error..." else "Cari penerima, isi pesan, atau error..."
+    val msgLogsTotalLabel = if (isEn) "Total" else "Total"
+    val msgLogsSentLabel = if (isEn) "Sent" else "Terkirim"
+    val msgLogsFailedLabel = if (isEn) "Failed" else "Gagal"
+    val msgLogsEmpty = if (isEn) "No message delivery logs found." else "Belum ada riwayat pengiriman pesan."
 
     // Settings 4 Tabs
     val tabGeneralSettings = if (isEn) "General" else "Umum & Web"
@@ -371,5 +394,11 @@ class OperationsLabels(strings: AppStrings) {
     val newPassLabel = if (isEn) "New Password (6-14 chars)" else "Kata Sandi Baru (6-14 karakter)"
     val confirmPassLabel = if (isEn) "Confirm New Password" else "Ulangi Kata Sandi Baru"
     val backupDbNowBtn = if (isEn) "Create JSON Backup on Server" else "Buat Backup DB JSON di Server"
+    val dbBackupWebNoteTitle = if (isEn) "Database Backup & Restore" else "Backup & Restore Database"
+    val dbBackupWebNoteBody = if (isEn) {
+        "For data safety, full Backup & Restore is managed directly via the PHPNuxBill Web Admin panel."
+    } else {
+        "Demi keamanan data, fitur Backup & Restore penuh dikelola langsung melalui panel Web Admin PHPNuxBill."
+    }
     val systemLogsTitle = if (isEn) "System Activity Logs" else "Log Aktivitas Sistem"
 }
