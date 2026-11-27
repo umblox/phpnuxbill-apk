@@ -27,12 +27,12 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Backup
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Restore
@@ -132,7 +132,6 @@ fun SettingsSystemScreen(
         AdminLevel.fromUserType(session.userType)
     }
     val canManageSystem = AdminRolePolicy.canManageSystemSettings(effectiveLevel)
-    val canBackupDb = AdminRolePolicy.canBackupDatabase(effectiveLevel)
     val allowedStaffRoles = remember(effectiveLevel) {
         when (effectiveLevel) {
             AdminLevel.SUPER_ADMIN -> listOf("SuperAdmin", "Admin", "Report", "Agent", "Sales")
@@ -610,7 +609,7 @@ fun SettingsSystemScreen(
                 }
 
                 // =============================================================
-                // TAB 3: STATUS DATABASE, BACKUP JSON & SYSTEM LOGS
+                // TAB 3: MONITOR STATUS DATABASE (READ-ONLY) & SYSTEM LOGS
                 // =============================================================
                 3 -> {
                     LazyColumn(
@@ -618,23 +617,43 @@ fun SettingsSystemScreen(
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        if (canBackupDb) {
-                            item {
-                                Button(
-                                    onClick = viewModel::triggerDbBackup,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(48.dp),
-                                    shape = RoundedCornerShape(12.dp)
+                        item {
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.Top
                                 ) {
-                                    Icon(Icons.Outlined.Backup, contentDescription = null)
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(labels.backupDbNowBtn)
+                                    Icon(
+                                        imageVector = Icons.Outlined.Info,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(
+                                            text = labels.dbBackupWebNoteTitle,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                        Text(
+                                            text = labels.dbBackupWebNoteBody,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                    }
                                 }
                             }
                         }
 
                         when (val st = dbStatusState) {
+                            is UiState.Idle, is UiState.Loading -> item { LoadingStateView() }
                             is UiState.Success -> {
                                 item {
                                     ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
@@ -644,16 +663,37 @@ fun SettingsSystemScreen(
                                                 style = MaterialTheme.typography.titleMedium,
                                                 fontWeight = FontWeight.Bold
                                             )
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                            st.data.tables.take(12).forEach { t ->
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            st.data.tables.forEachIndexed { idx, t ->
                                                 Row(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
-                                                        .padding(vertical = 2.dp),
-                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                        .padding(vertical = 4.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
                                                 ) {
-                                                    Text(t.name, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
-                                                    Text("${t.rows} rows (${t.sizeLabel})", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(
+                                                            text = t.name,
+                                                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                                                            fontWeight = FontWeight.Medium
+                                                        )
+                                                        if (t.engine.isNotBlank()) {
+                                                            Text(
+                                                                text = t.engine,
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                        }
+                                                    }
+                                                    Text(
+                                                        text = "${t.rows} rows (${t.sizeLabel})",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                if (idx < st.data.tables.lastIndex) {
+                                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
                                                 }
                                             }
                                         }
@@ -661,7 +701,6 @@ fun SettingsSystemScreen(
                                 }
                             }
                             is UiState.Error -> item { ErrorStateView(message = st.message, onRetry = viewModel::loadDbStatusAndLogs) }
-                            else -> {}
                         }
 
                         item {
