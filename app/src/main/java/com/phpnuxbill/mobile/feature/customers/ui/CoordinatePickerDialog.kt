@@ -14,13 +14,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Layers
@@ -69,7 +66,9 @@ fun CoordinatePickerDialog(
     initialCoordinates: String,
     routerHints: List<RouterCoordHint>,
     onConfirm: (Double, Double) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    title: String? = null,
+    subtitle: String? = null
 ) {
     val strings = LocalAppStrings.current
     val isEn = strings.langCode == "en"
@@ -112,8 +111,8 @@ fun CoordinatePickerDialog(
     }
 
     AppScreenScaffold(
-        title = labels.mapPickerTitle,
-        subtitle = labels.mapPickerHint,
+        title = title ?: labels.mapPickerTitle,
+        subtitle = subtitle ?: labels.mapPickerHint,
         onBack = onDismiss,
         actions = {
             IconButton(onClick = { useSatellite = !useSatellite }) {
@@ -263,6 +262,20 @@ private fun buildPickerLeafletHtml(
                     border-radius: 12px; font-size: 13px; text-align: center; z-index: 9999;
                 }
                 .pin-wrap { background: transparent; border: none; }
+                .picker-non-interactive, .router-label-chip {
+                    pointer-events: none !important;
+                }
+                .router-label-chip {
+                    background: rgba(15, 23, 42, 0.78);
+                    color: #e0f2fe;
+                    border: 1px solid rgba(56, 189, 248, 0.55);
+                    border-radius: 6px;
+                    padding: 2px 6px;
+                    font-size: 11px;
+                    font-weight: 600;
+                    white-space: nowrap;
+                    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+                }
             </style>
         </head>
         <body>
@@ -308,6 +321,13 @@ private fun buildPickerLeafletHtml(
                     }
                 }
 
+                function movePinTo(latlng) {
+                    if (!marker || !latlng) return;
+                    var ll = latlng.wrap ? latlng.wrap() : latlng;
+                    marker.setLatLng(ll);
+                    report(ll);
+                }
+
                 function initPicker() {
                     var box = document.getElementById('status-box');
                     if (typeof L === 'undefined') {
@@ -319,6 +339,7 @@ private fun buildPickerLeafletHtml(
                     map = L.map('map', { zoomControl: true }).setView([INIT_LAT, INIT_LNG], 16);
                     window.setPickerLayer(activeLayer);
 
+                    // Overlay referensi Router & Radius dibuat non-interaktif agar ketukan di dalam radius selalu meneruskan klik ke peta
                     for (var i = 0; i < ROUTERS.length; i++) {
                         var r = ROUTERS[i];
                         if (typeof r.lat !== 'number' || typeof r.lng !== 'number') continue;
@@ -329,21 +350,43 @@ private fun buildPickerLeafletHtml(
                                 dashArray: '5, 5',
                                 fillColor: '#38BDF8',
                                 fillOpacity: 0.14,
-                                radius: r.coverageMeters
-                            }).addTo(map).bindPopup('Router: ' + (r.name || 'Router') + ' (' + r.coverageMeters + 'm)');
+                                radius: r.coverageMeters,
+                                interactive: false,
+                                bubblingMouseEvents: true,
+                                className: 'picker-non-interactive'
+                            }).addTo(map);
                         }
+                        L.circleMarker([r.lat, r.lng], {
+                            radius: 5,
+                            color: '#ffffff',
+                            weight: 1.5,
+                            fillColor: '#0284C7',
+                            fillOpacity: 0.9,
+                            interactive: false,
+                            bubblingMouseEvents: true,
+                            className: 'picker-non-interactive'
+                        }).addTo(map).bindTooltip(
+                            (r.name || 'Router') + (r.coverageMeters > 0 ? ' (' + r.coverageMeters + 'm)' : ''),
+                            {
+                                permanent: false,
+                                direction: 'top',
+                                interactive: false,
+                                className: 'router-label-chip'
+                            }
+                        );
                     }
 
-                    marker = L.marker([INIT_LAT, INIT_LNG], { draggable: true, icon: makePinIcon() }).addTo(map);
+                    marker = L.marker([INIT_LAT, INIT_LNG], {
+                        draggable: true,
+                        zIndexOffset: 1000,
+                        icon: makePinIcon()
+                    }).addTo(map);
+
                     marker.on('dragend', function(e) {
-                        var ll = e.target.getLatLng().wrap();
-                        marker.setLatLng(ll);
-                        report(ll);
+                        movePinTo(e.target.getLatLng());
                     });
                     map.on('click', function(e) {
-                        var ll = e.latlng.wrap();
-                        marker.setLatLng(ll);
-                        report(ll);
+                        movePinTo(e.latlng);
                     });
 
                     setTimeout(function() { map.invalidateSize(); }, 250);
