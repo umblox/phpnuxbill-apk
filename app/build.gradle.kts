@@ -183,6 +183,11 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
+        getByName("debug") {
+            if (hasValidReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
     }
 }
 // ACS_SIGNING_CONFIG_END
