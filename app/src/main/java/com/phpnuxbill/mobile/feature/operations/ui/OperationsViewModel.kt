@@ -15,6 +15,9 @@ import com.phpnuxbill.mobile.feature.operations.model.AssetItem
 import com.phpnuxbill.mobile.feature.operations.model.ChangePasswordState
 import com.phpnuxbill.mobile.feature.operations.model.CouponFormState
 import com.phpnuxbill.mobile.feature.operations.model.CouponItem
+import com.phpnuxbill.mobile.feature.operations.model.DashboardWidgetFormState
+import com.phpnuxbill.mobile.feature.operations.model.DashboardWidgetItem
+import com.phpnuxbill.mobile.feature.operations.model.DashboardWidgetsData
 import com.phpnuxbill.mobile.feature.operations.model.DbStatusData
 import com.phpnuxbill.mobile.feature.operations.model.FinancialReportData
 import com.phpnuxbill.mobile.feature.operations.model.MessageLogsData
@@ -100,12 +103,22 @@ class OperationsViewModel(
     private val _editingPage = MutableStateFlow<StaticPageItem?>(null)
     val editingPage: StateFlow<StaticPageItem?> = _editingPage.asStateFlow()
 
-    // Pengaturan, Template Notifikasi, Staf, DB & Logs
+    // Pengaturan, Template Notifikasi, Widgets, Staf, DB & Logs
     private val _webSettings = MutableStateFlow(WebServerSettings())
     val webSettings: StateFlow<WebServerSettings> = _webSettings.asStateFlow()
     private var webSettingsLoaded = false
     private val _notifTemplates = MutableStateFlow(emptyList<NotificationTemplateItem>())
     val notifTemplates: StateFlow<List<NotificationTemplateItem>> = _notifTemplates.asStateFlow()
+
+    private val _widgetsState = MutableStateFlow<UiState<DashboardWidgetsData>>(UiState.Idle)
+    val widgetsState: StateFlow<UiState<DashboardWidgetsData>> = _widgetsState.asStateFlow()
+    private val _selectedWidgetRole = MutableStateFlow("Admin")
+    val selectedWidgetRole: StateFlow<String> = _selectedWidgetRole.asStateFlow()
+    private val _widgetStructureInput = MutableStateFlow("")
+    val widgetStructureInput: StateFlow<String> = _widgetStructureInput.asStateFlow()
+    private val _widgetForm = MutableStateFlow(DashboardWidgetFormState())
+    val widgetForm: StateFlow<DashboardWidgetFormState> = _widgetForm.asStateFlow()
+
     private val _staffListState = MutableStateFlow<UiState<List<StaffUserItem>>>(UiState.Loading)
     val staffListState: StateFlow<UiState<List<StaffUserItem>>> = _staffListState.asStateFlow()
     private val _staffForm = MutableStateFlow(StaffFormState())
@@ -167,6 +180,10 @@ class OperationsViewModel(
 
     fun ensureStaticPagesLoaded() {
         if (_staticPagesState.value is UiState.Idle) loadStaticPages()
+    }
+
+    fun ensureWidgetsLoaded() {
+        if (_widgetsState.value is UiState.Idle) loadWidgets()
     }
 
     fun ensureWebSettingsLoaded() {
@@ -547,7 +564,7 @@ class OperationsViewModel(
     }
 
     // -------------------------------------------------------------------------
-    // PENGATURAN, NOTIFIKASI, STAF, DB & LOGS
+    // PENGATURAN, NOTIFIKASI, WIDGETS, STAF, DB & LOGS
     // -------------------------------------------------------------------------
     fun loadWebSettings() {
         viewModelScope.launch {
@@ -626,6 +643,156 @@ class OperationsViewModel(
         viewModelScope.launch {
             when (val res = repository.saveNotificationTemplates(_notifTemplates.value)) {
                 is ApiResult.Success -> _bannerMessage.value = res.message
+                is ApiResult.Error -> _bannerMessage.value = res.message
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // DASHBOARD WIDGETS (tbl_widgets — SELARAS widgets.php)
+    // -------------------------------------------------------------------------
+    fun onSelectWidgetRole(role: String) {
+        if (_selectedWidgetRole.value.equals(role, ignoreCase = true)) return
+        _selectedWidgetRole.value = role
+        loadWidgets(isPullRefresh = false)
+    }
+
+    fun onWidgetStructureInputChanged(value: String) {
+        _widgetStructureInput.value = value
+    }
+
+    fun loadWidgets(isPullRefresh: Boolean = false) {
+        viewModelScope.launch {
+            if (isPullRefresh) _isRefreshing.value = true
+            else _widgetsState.value = UiState.Loading
+
+            when (val res = repository.getWidgets(userRole = _selectedWidgetRole.value)) {
+                is ApiResult.Success -> {
+                    _widgetStructureInput.value = res.data.dashboardStructure
+                    _widgetsState.value = UiState.Success(res.data)
+                }
+                is ApiResult.Error -> {
+                    if (res.isUnauthorized) sessionStorage.clearActiveToken()
+                    else _widgetsState.value = UiState.Error(res.message)
+                }
+            }
+            _isRefreshing.value = false
+        }
+    }
+
+    fun openWidgetForm(item: DashboardWidgetItem? = null) {
+        val loaded = (_widgetsState.value as? UiState.Success)?.data
+        val activeRole = _selectedWidgetRole.value
+        _widgetForm.value = if (item == null) {
+            val defaultMod = loaded?.availableWidgets?.firstOrNull()
+            val nextOrder = (loaded?.widgets?.maxOfOrNull { it.orders } ?: 0) + 1
+            DashboardWidgetFormState(
+                isOpen = true,
+                isEdit = false,
+                user = activeRole,
+                title = defaultMod?.label.orEmpty(),
+                widget = defaultMod?.key.orEmpty(),
+                position = "1",
+                orders = nextOrder.toString(),
+                enabled = true
+            )
+        } else {
+            DashboardWidgetFormState(
+                isOpen = true,
+                isEdit = true,
+                id = item.id,
+                user = item.user.ifBlank { activeRole },
+                title = item.title,
+                widget = item.widget,
+                position = item.position.toString(),
+                orders = item.orders.toString(),
+                enabled = item.enabled,
+                content = item.content
+            )
+        }
+    }
+
+    fun closeWidgetForm() = _widgetForm.update { it.copy(isOpen = false, error = null) }
+    fun updateWidgetForm(block: (DashboardWidgetFormState) -> DashboardWidgetFormState) =
+        _widgetForm.update { block(it).copy(error = null) }
+
+    fun submitWidgetForm() {
+        val f = _widgetForm.value
+        if (f.isSaving) return
+        viewModelScope.launch {
+            _widgetForm.update { it.copy(isSaving = true, error = null) }
+            when (val res = repository.saveWidget(f)) {
+                is ApiResult.Success -> {
+                    _widgetForm.update { it.copy(isSaving = false, isOpen = false) }
+                    _bannerMessage.value = res.message
+                    loadWidgets(isPullRefresh = true)
+                }
+                is ApiResult.Error -> _widgetForm.update { it.copy(isSaving = false, error = res.message) }
+            }
+        }
+    }
+
+    fun toggleWidgetEnabled(item: DashboardWidgetItem) {
+        viewModelScope.launch {
+            when (val res = repository.toggleWidget(item.id, !item.enabled)) {
+                is ApiResult.Success -> {
+                    _bannerMessage.value = res.message
+                    loadWidgets(isPullRefresh = true)
+                }
+                is ApiResult.Error -> _bannerMessage.value = res.message
+            }
+        }
+    }
+
+    fun moveWidgetOrder(item: DashboardWidgetItem, moveUp: Boolean) {
+        val data = (_widgetsState.value as? UiState.Success)?.data ?: return
+        val samePos = data.widgets
+            .filter { it.position == item.position }
+            .sortedWith(compareBy<DashboardWidgetItem> { it.orders }.thenBy { it.id })
+            .toMutableList()
+        val idx = samePos.indexOfFirst { it.id == item.id }
+        val targetIdx = if (moveUp) idx - 1 else idx + 1
+        if (idx < 0 || targetIdx !in samePos.indices) return
+
+        val swapped = samePos[targetIdx]
+        samePos[targetIdx] = samePos[idx]
+        samePos[idx] = swapped
+
+        val updates = samePos.mapIndexed { orderIdx, w ->
+            Triple(w.id, orderIdx + 1, w.position)
+        }
+        viewModelScope.launch {
+            when (val res = repository.reorderWidgets(updates)) {
+                is ApiResult.Success -> {
+                    _bannerMessage.value = res.message
+                    loadWidgets(isPullRefresh = true)
+                }
+                is ApiResult.Error -> _bannerMessage.value = res.message
+            }
+        }
+    }
+
+    fun deleteWidget(widgetId: Int) {
+        viewModelScope.launch {
+            when (val res = repository.deleteWidget(widgetId)) {
+                is ApiResult.Success -> {
+                    _bannerMessage.value = res.message
+                    loadWidgets(isPullRefresh = true)
+                }
+                is ApiResult.Error -> _bannerMessage.value = res.message
+            }
+        }
+    }
+
+    fun saveWidgetStructure() {
+        val structVal = _widgetStructureInput.value.trim()
+        if (structVal.isBlank()) return
+        viewModelScope.launch {
+            when (val res = repository.saveWidgetStructure(_selectedWidgetRole.value, structVal)) {
+                is ApiResult.Success -> {
+                    _bannerMessage.value = res.message
+                    loadWidgets(isPullRefresh = true)
+                }
                 is ApiResult.Error -> _bannerMessage.value = res.message
             }
         }
