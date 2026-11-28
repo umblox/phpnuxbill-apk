@@ -573,7 +573,7 @@ private fun MessageLogCard(item: MessageLogItem) {
     val badgeTone = when {
         isFailed -> BadgeTone.DANGER
         isSent -> BadgeTone.SUCCESS
-        else -> BadgeTone.INFO
+        else -> BadgeTone.NEUTRAL
     }
 
     Surface(
@@ -603,7 +603,7 @@ private fun MessageLogCard(item: MessageLogItem) {
                 ) {
                     StatusBadge(
                         text = item.messageType.uppercase(),
-                        tone = BadgeTone.INFO
+                        tone = BadgeTone.NEUTRAL
                     )
                     StatusBadge(
                         text = item.status.ifBlank { "-" }.uppercase(),
