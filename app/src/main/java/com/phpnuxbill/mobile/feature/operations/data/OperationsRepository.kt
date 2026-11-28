@@ -12,9 +12,13 @@ import com.phpnuxbill.mobile.core.network.str
 import com.phpnuxbill.mobile.core.network.toStringList
 import com.phpnuxbill.mobile.feature.operations.model.AssetFormState
 import com.phpnuxbill.mobile.feature.operations.model.AssetItem
+import com.phpnuxbill.mobile.feature.operations.model.AvailableWidgetOption
 import com.phpnuxbill.mobile.feature.operations.model.ChangePasswordState
 import com.phpnuxbill.mobile.feature.operations.model.CouponFormState
 import com.phpnuxbill.mobile.feature.operations.model.CouponItem
+import com.phpnuxbill.mobile.feature.operations.model.DashboardWidgetFormState
+import com.phpnuxbill.mobile.feature.operations.model.DashboardWidgetItem
+import com.phpnuxbill.mobile.feature.operations.model.DashboardWidgetsData
 import com.phpnuxbill.mobile.feature.operations.model.DbStatusData
 import com.phpnuxbill.mobile.feature.operations.model.DbTableStatusItem
 import com.phpnuxbill.mobile.feature.operations.model.FinancialReportData
@@ -76,12 +80,21 @@ interface OperationsRepository {
     suspend fun deleteAsset(assetId: Int): ApiResult<String>
     suspend fun getNetworkMapData(): ApiResult<NetworkMapData>
 
-    // Settings, Notifications, Staff, DB & Logs
+    // Settings, Notifications, Widgets, Staff, DB & Logs
     suspend fun getWebSettings(): ApiResult<WebServerSettings>
     suspend fun saveWebSettings(settings: WebServerSettings): ApiResult<String>
     suspend fun testNotificationGateway(channel: String, target: String): ApiResult<String>
     suspend fun getNotificationTemplates(): ApiResult<List<NotificationTemplateItem>>
     suspend fun saveNotificationTemplates(items: List<NotificationTemplateItem>): ApiResult<String>
+
+    // Dashboard Widgets (tbl_widgets)
+    suspend fun getWidgets(userRole: String = "Admin"): ApiResult<DashboardWidgetsData>
+    suspend fun saveWidget(form: DashboardWidgetFormState): ApiResult<String>
+    suspend fun toggleWidget(widgetId: Int, enabled: Boolean): ApiResult<String>
+    suspend fun reorderWidgets(items: List<Triple<Int, Int, Int>>): ApiResult<String>
+    suspend fun deleteWidget(widgetId: Int): ApiResult<String>
+    suspend fun saveWidgetStructure(userRole: String, dashboard: String): ApiResult<String>
+
     suspend fun getStaffList(search: String = ""): ApiResult<List<StaffUserItem>>
     suspend fun saveStaff(form: StaffFormState): ApiResult<String>
     suspend fun deleteStaff(staffId: Int): ApiResult<String>
@@ -753,6 +766,134 @@ class RemoteOperationsRepository(
             val res = networkGateway.postJson(
                 action = "admin_notifications_save",
                 body = mapOf("notifications" to payloadMap)
+            )
+        ) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(res.message, res.message)
+        }
+    }
+
+    // =========================================================================
+    // DASHBOARD WIDGETS (tbl_widgets — SELARAS widgets.php)
+    // =========================================================================
+
+    override suspend fun getWidgets(userRole: String): ApiResult<DashboardWidgetsData> {
+        val role = userRole.ifBlank { "Admin" }
+        return when (val res = networkGateway.get(action = "admin_widgets", params = mapOf("user" to role))) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> {
+                val root = res.data.asObjOrNull()
+                val users = root?.getAsJsonArray("users").toStringList()
+                    .ifEmpty { listOf("Admin", "Agent", "Sales", "Customer") }
+                val available = root?.getAsJsonArray("available_widgets")?.mapNotNull { el ->
+                    val o = el.asObjOrNull() ?: return@mapNotNull null
+                    val key = o.str("key")
+                    if (key.isBlank()) return@mapNotNull null
+                    AvailableWidgetOption(
+                        key = key,
+                        label = o.str("label").ifBlank { key }
+                    )
+                }.orEmpty()
+                val widgets = root?.getAsJsonArray("widgets")?.mapNotNull { el ->
+                    val o = el.asObjOrNull() ?: return@mapNotNull null
+                    DashboardWidgetItem(
+                        id = o.intVal("id"),
+                        orders = o.intVal("orders"),
+                        position = o.intVal("position").coerceIn(1, 12),
+                        user = o.str("user").ifBlank { role },
+                        enabled = o.boolVal("enabled"),
+                        title = o.str("title"),
+                        widget = o.str("widget"),
+                        content = o.str("content")
+                    )
+                }.orEmpty()
+
+                ApiResult.Success(
+                    data = DashboardWidgetsData(
+                        user = root.str("user").ifBlank { role },
+                        users = users,
+                        dashboardStructure = root.str("dashboard_structure"),
+                        maxPosition = root.intVal("max_position").coerceIn(1, 12),
+                        availableWidgets = available,
+                        widgets = widgets
+                    ),
+                    message = res.message
+                )
+            }
+        }
+    }
+
+    override suspend fun saveWidget(form: DashboardWidgetFormState): ApiResult<String> {
+        val payload = mapOf<String, Any>(
+            "id" to form.id,
+            "user" to form.user.ifBlank { "Admin" },
+            "title" to form.title.trim(),
+            "widget" to form.widget.trim(),
+            "position" to (form.position.trim().toIntOrNull() ?: 1).coerceIn(1, 12),
+            "orders" to (form.orders.trim().toIntOrNull() ?: 99).coerceAtLeast(0),
+            "enabled" to if (form.enabled) 1 else 0,
+            "content" to form.content
+        )
+        return when (val res = networkGateway.postJson(action = "admin_widget_save", body = payload)) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(res.message, res.message)
+        }
+    }
+
+    override suspend fun toggleWidget(widgetId: Int, enabled: Boolean): ApiResult<String> {
+        return when (
+            val res = networkGateway.postForm(
+                action = "admin_widget_toggle",
+                fields = mapOf(
+                    "id" to widgetId.toString(),
+                    "enabled" to if (enabled) "1" else "0"
+                )
+            )
+        ) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(res.message, res.message)
+        }
+    }
+
+    override suspend fun reorderWidgets(items: List<Triple<Int, Int, Int>>): ApiResult<String> {
+        val payloadItems = items.map { (id, orders, pos) ->
+            mapOf(
+                "id" to id,
+                "orders" to orders,
+                "position" to pos
+            )
+        }
+        return when (
+            val res = networkGateway.postJson(
+                action = "admin_widget_reorder",
+                body = mapOf("items" to payloadItems)
+            )
+        ) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(res.message, res.message)
+        }
+    }
+
+    override suspend fun deleteWidget(widgetId: Int): ApiResult<String> {
+        return when (
+            val res = networkGateway.postForm(
+                action = "admin_widget_delete",
+                fields = mapOf("id" to widgetId.toString())
+            )
+        ) {
+            is ApiResult.Error -> res
+            is ApiResult.Success -> ApiResult.Success(res.message, res.message)
+        }
+    }
+
+    override suspend fun saveWidgetStructure(userRole: String, dashboard: String): ApiResult<String> {
+        return when (
+            val res = networkGateway.postForm(
+                action = "admin_widget_structure_save",
+                fields = mapOf(
+                    "user" to userRole,
+                    "dashboard" to dashboard.trim()
+                )
             )
         ) {
             is ApiResult.Error -> res
