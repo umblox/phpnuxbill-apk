@@ -209,7 +209,7 @@ data class NetworkMapData(
 )
 
 // =========================================================================
-// 3. PENGATURAN, NOTIFIKASI, STAF, DB & LOGS (core_settings_staff.php)
+// 3. PENGATURAN, NOTIFIKASI, WIDGETS, STAF, DB & LOGS (core_settings_staff.php)
 // =========================================================================
 
 data class WebServerSettings(
@@ -237,6 +237,46 @@ data class NotificationTemplateItem(
     val key: String,
     val value: String,
     val defaultValue: String
+)
+
+data class AvailableWidgetOption(
+    val key: String,
+    val label: String
+)
+
+data class DashboardWidgetItem(
+    val id: Int,
+    val orders: Int,
+    val position: Int,
+    val user: String,
+    val enabled: Boolean,
+    val title: String,
+    val widget: String,
+    val content: String
+)
+
+data class DashboardWidgetsData(
+    val user: String = "Admin",
+    val users: List<String> = listOf("Admin", "Agent", "Sales", "Customer"),
+    val dashboardStructure: String = "12.7,5.12",
+    val maxPosition: Int = 3,
+    val availableWidgets: List<AvailableWidgetOption> = emptyList(),
+    val widgets: List<DashboardWidgetItem> = emptyList()
+)
+
+data class DashboardWidgetFormState(
+    val isOpen: Boolean = false,
+    val isEdit: Boolean = false,
+    val id: Int = 0,
+    val user: String = "Admin",
+    val title: String = "",
+    val widget: String = "",
+    val position: String = "1",
+    val orders: String = "1",
+    val enabled: Boolean = true,
+    val content: String = "",
+    val isSaving: Boolean = false,
+    val error: String? = null
 )
 
 data class StaffUserItem(
@@ -367,11 +407,29 @@ class OperationsLabels(strings: AppStrings) {
     val msgLogsFailedLabel = if (isEn) "Failed" else "Gagal"
     val msgLogsEmpty = if (isEn) "No message delivery logs found." else "Belum ada riwayat pengiriman pesan."
 
-    // Settings 4 Tabs
+    // Settings 5 Tabs
     val tabGeneralSettings = if (isEn) "General" else "Umum & Web"
     val tabNotifTemplates = if (isEn) "Templates" else "Template WA"
+    val tabWidgets = if (isEn) "Widgets" else "Widget"
     val tabStaffSecurity = if (isEn) "Staff & Key" else "Staf & Sandi"
     val tabDbLogs = if (isEn) "DB & Logs" else "DB & Log"
+
+    // Widgets Labels
+    val widgetsSectionTitle = if (isEn) "Dashboard Widgets" else "Widget Dasbor"
+    val widgetStructureTitle = if (isEn) "Dashboard Column Structure" else "Struktur Kolom Dasbor"
+    val widgetStructureHint = if (isEn) "e.g. 12.7,5.12 or 6,6" else "mis. 12.7,5.12 atau 6,6"
+    val saveStructureBtn = if (isEn) "Save Grid" else "Simpan Grid"
+    val addWidgetBtn = if (isEn) "Add Widget" else "Tambah Widget"
+    val editWidgetTitle = if (isEn) "Edit Widget" else "Edit Widget"
+    val widgetTitleLabel = if (isEn) "Widget Title" else "Judul Widget"
+    val widgetModuleLabel = if (isEn) "Widget Module (system/widgets)" else "Modul Widget (system/widgets)"
+    val widgetPositionLabel = if (isEn) "Position (1-12)" else "Posisi (1-12)"
+    val widgetOrderLabel = if (isEn) "Order" else "Urutan"
+    val widgetContentLabel = if (isEn) "Custom HTML / Content (Optional)" else "Konten / HTML Kustom (Opsional)"
+    val widgetEnabledLabel = if (isEn) "Widget Enabled" else "Widget Aktif"
+    val widgetEmptyMsg = if (isEn) "No widgets configured for this role." else "Belum ada widget untuk peran ini."
+    val deleteWidgetConfirm = if (isEn) "Delete this dashboard widget permanently?" else "Hapus widget dasbor ini secara permanen?"
+
     val webBillingConfigTitle = if (isEn) "Server Billing Configuration (tbl_appconfig)" else "Pengaturan Server Billing (tbl_appconfig)"
     val companyNameLabel = if (isEn) "Company Name" else "Nama Perusahaan"
     val resetDayLabel = if (isEn) "Monthly Reset Day (1-28)" else "Tanggal Reset Bulanan (1-28)"
