@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,6 +28,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.ArrowDownward
+import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.Delete
@@ -37,19 +40,24 @@ import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryScrollableTabRow
@@ -80,6 +88,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.phpnuxbill.mobile.BuildConfig
@@ -96,7 +105,11 @@ import com.phpnuxbill.mobile.core.ui.components.ErrorStateView
 import com.phpnuxbill.mobile.core.ui.components.LanguageToggleChip
 import com.phpnuxbill.mobile.core.ui.components.LoadingStateView
 import com.phpnuxbill.mobile.core.ui.components.StatusBadge
+import com.phpnuxbill.mobile.feature.operations.model.AvailableWidgetOption
 import com.phpnuxbill.mobile.feature.operations.model.ChangePasswordState
+import com.phpnuxbill.mobile.feature.operations.model.DashboardWidgetFormState
+import com.phpnuxbill.mobile.feature.operations.model.DashboardWidgetItem
+import com.phpnuxbill.mobile.feature.operations.model.DashboardWidgetsData
 import com.phpnuxbill.mobile.feature.operations.model.OperationsLabels
 import com.phpnuxbill.mobile.feature.operations.model.StaffFormState
 import com.phpnuxbill.mobile.feature.operations.model.StaffUserItem
@@ -116,6 +129,10 @@ fun SettingsSystemScreen(
 ) {
     val webSettings by viewModel.webSettings.collectAsStateWithLifecycle()
     val notifTemplates by viewModel.notifTemplates.collectAsStateWithLifecycle()
+    val widgetsState by viewModel.widgetsState.collectAsStateWithLifecycle()
+    val selectedWidgetRole by viewModel.selectedWidgetRole.collectAsStateWithLifecycle()
+    val widgetStructureInput by viewModel.widgetStructureInput.collectAsStateWithLifecycle()
+    val widgetForm by viewModel.widgetForm.collectAsStateWithLifecycle()
     val staffListState by viewModel.staffListState.collectAsStateWithLifecycle()
     val staffForm by viewModel.staffForm.collectAsStateWithLifecycle()
     val changePassState by viewModel.changePasswordState.collectAsStateWithLifecycle()
@@ -141,8 +158,10 @@ fun SettingsSystemScreen(
         }
     }
 
-    var selectedTab by remember(canManageSystem) { mutableIntStateOf(if (canManageSystem) 0 else 2) }
+    // Tab: 0=General, 1=Templates, 2=Widgets, 3=Staff & Key, 4=DB & Logs
+    var selectedTab by remember(canManageSystem) { mutableIntStateOf(if (canManageSystem) 0 else 3) }
     var wasSavingWebSettings by remember { mutableStateOf(false) }
+    var deleteWidgetTarget by remember { mutableStateOf<DashboardWidgetItem?>(null) }
 
     val logoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -170,8 +189,9 @@ fun SettingsSystemScreen(
             when (selectedTab) {
                 0 -> viewModel.ensureWebSettingsLoaded()
                 1 -> if (notifTemplates.isEmpty()) viewModel.loadNotificationTemplates()
-                2 -> viewModel.loadStaffList()
-                3 -> viewModel.loadDbStatusAndLogs()
+                2 -> viewModel.ensureWidgetsLoaded()
+                3 -> viewModel.loadStaffList()
+                4 -> viewModel.loadDbStatusAndLogs()
             }
         }
     }
@@ -187,8 +207,26 @@ fun SettingsSystemScreen(
         }
     }
 
-    BackHandler(enabled = staffForm.isOpen) {
-        viewModel.closeStaffForm()
+    BackHandler(enabled = staffForm.isOpen || widgetForm.isOpen) {
+        when {
+            widgetForm.isOpen -> viewModel.closeWidgetForm()
+            staffForm.isOpen -> viewModel.closeStaffForm()
+        }
+    }
+
+    // Sub-layar penuh: Tambah / Edit Widget Dasbor
+    if (widgetForm.isOpen) {
+        val loadedWidgets = (widgetsState as? UiState.Success)?.data
+        FullScreenWidgetForm(
+            form = widgetForm,
+            availableWidgets = loadedWidgets?.availableWidgets.orEmpty(),
+            availableRoles = loadedWidgets?.users ?: listOf("Admin", "Agent", "Sales", "Customer"),
+            labels = labels,
+            onUpdate = viewModel::updateWidgetForm,
+            onSubmit = viewModel::submitWidgetForm,
+            onClose = viewModel::closeWidgetForm
+        )
+        return
     }
 
     // Sub-layar penuh: Tambah / Edit Akun Staf
@@ -202,6 +240,35 @@ fun SettingsSystemScreen(
             onClose = viewModel::closeStaffForm
         )
         return
+    }
+
+    if (deleteWidgetTarget != null) {
+        val target = deleteWidgetTarget!!
+        AlertDialog(
+            onDismissRequest = { deleteWidgetTarget = null },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
+            shape = RoundedCornerShape(22.dp),
+            title = { Text("${strings.delete} (${target.title})", fontWeight = FontWeight.Bold) },
+            text = { Text(labels.deleteWidgetConfirm) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        deleteWidgetTarget = null
+                        viewModel.deleteWidget(target.id)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(strings.delete)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { deleteWidgetTarget = null }, shape = RoundedCornerShape(12.dp)) {
+                    Text(strings.cancel)
+                }
+            }
+        )
     }
 
     val screenTitle = if (!canManageSystem && effectiveLevel == AdminLevel.AGENT) {
@@ -235,8 +302,9 @@ fun SettingsSystemScreen(
                                 when (selectedTab) {
                                     0 -> viewModel.loadWebSettings()
                                     1 -> viewModel.loadNotificationTemplates()
-                                    2 -> viewModel.loadStaffList()
-                                    3 -> viewModel.loadDbStatusAndLogs()
+                                    2 -> viewModel.loadWidgets(isPullRefresh = true)
+                                    3 -> viewModel.loadStaffList()
+                                    4 -> viewModel.loadDbStatusAndLogs()
                                 }
                             }
                         }
@@ -259,6 +327,7 @@ fun SettingsSystemScreen(
                 val tabs = listOf(
                     labels.tabGeneralSettings,
                     labels.tabNotifTemplates,
+                    labels.tabWidgets,
                     labels.tabStaffSecurity,
                     labels.tabDbLogs
                 )
@@ -277,7 +346,7 @@ fun SettingsSystemScreen(
                 }
             }
 
-            val effectiveTab = if (canManageSystem) selectedTab else 2
+            val effectiveTab = if (canManageSystem) selectedTab else 3
 
             when (effectiveTab) {
                 // =============================================================
@@ -585,9 +654,30 @@ fun SettingsSystemScreen(
                 }
 
                 // =============================================================
-                // TAB 2: MANAJEMEN STAF & GANTI KATA SANDI ADMIN
+                // TAB 2: MANAJEMEN WIDGETS DASBOR (tbl_widgets — SELARAS widgets.php)
                 // =============================================================
                 2 -> {
+                    WidgetsTabContent(
+                        widgetsState = widgetsState,
+                        selectedRole = selectedWidgetRole,
+                        structureInput = widgetStructureInput,
+                        labels = labels,
+                        onSelectRole = viewModel::onSelectWidgetRole,
+                        onStructureInputChanged = viewModel::onWidgetStructureInputChanged,
+                        onSaveStructure = viewModel::saveWidgetStructure,
+                        onAddWidget = { viewModel.openWidgetForm(null) },
+                        onEditWidget = { w -> viewModel.openWidgetForm(w) },
+                        onToggleWidget = viewModel::toggleWidgetEnabled,
+                        onMoveWidget = viewModel::moveWidgetOrder,
+                        onDeleteWidget = { w -> deleteWidgetTarget = w },
+                        onRetry = { viewModel.loadWidgets(isPullRefresh = false) }
+                    )
+                }
+
+                // =============================================================
+                // TAB 3: MANAJEMEN STAF & GANTI KATA SANDI ADMIN
+                // =============================================================
+                3 -> {
                     StaffAndSecurityTabContent(
                         staffListState = staffListState,
                         changePassState = changePassState,
@@ -609,9 +699,9 @@ fun SettingsSystemScreen(
                 }
 
                 // =============================================================
-                // TAB 3: MONITOR STATUS DATABASE (READ-ONLY) & SYSTEM LOGS
+                // TAB 4: MONITOR STATUS DATABASE (READ-ONLY) & SYSTEM LOGS
                 // =============================================================
-                3 -> {
+                4 -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(16.dp),
@@ -727,6 +817,431 @@ fun SettingsSystemScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun WidgetsTabContent(
+    widgetsState: UiState<DashboardWidgetsData>,
+    selectedRole: String,
+    structureInput: String,
+    labels: OperationsLabels,
+    onSelectRole: (String) -> Unit,
+    onStructureInputChanged: (String) -> Unit,
+    onSaveStructure: () -> Unit,
+    onAddWidget: () -> Unit,
+    onEditWidget: (DashboardWidgetItem) -> Unit,
+    onToggleWidget: (DashboardWidgetItem) -> Unit,
+    onMoveWidget: (DashboardWidgetItem, Boolean) -> Unit,
+    onDeleteWidget: (DashboardWidgetItem) -> Unit,
+    onRetry: () -> Unit
+) {
+    val strings = LocalAppStrings.current
+    val loaded = (widgetsState as? UiState.Success)?.data
+    val roles = loaded?.users ?: listOf("Admin", "Agent", "Sales", "Customer")
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        LazyRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(roles) { role ->
+                FilterChip(
+                    selected = selectedRole.equals(role, ignoreCase = true),
+                    onClick = { onSelectRole(role) },
+                    label = { Text(role) }
+                )
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+        when (widgetsState) {
+            is UiState.Idle, is UiState.Loading -> LoadingStateView()
+            is UiState.Error -> ErrorStateView(message = widgetsState.message, onRetry = onRetry)
+            is UiState.Success -> {
+                val data = widgetsState.data
+                val sortedWidgets = remember(data.widgets) {
+                    data.widgets.sortedWith(
+                        compareBy<DashboardWidgetItem> { it.position }
+                            .thenBy { it.orders }
+                            .thenBy { it.id }
+                    )
+                }
+                val byPosition = remember(sortedWidgets) {
+                    sortedWidgets.groupBy { it.position }
+                }
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    item {
+                        SettingsSectionBox(title = "${labels.widgetStructureTitle} ($selectedRole)") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = structureInput,
+                                    onValueChange = onStructureInputChanged,
+                                    label = { Text("dashboard_$selectedRole") },
+                                    placeholder = { Text(labels.widgetStructureHint) },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                FilledTonalButton(
+                                    onClick = onSaveStructure,
+                                    enabled = structureInput.isNotBlank(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp)
+                                ) {
+                                    Text(labels.saveStructureBtn, maxLines = 1)
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${labels.widgetsSectionTitle} (${sortedWidgets.size})",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Button(onClick = onAddWidget, shape = RoundedCornerShape(10.dp)) {
+                                Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(labels.addWidgetBtn)
+                            }
+                        }
+                    }
+
+                    if (sortedWidgets.isEmpty()) {
+                        item {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = labels.widgetEmptyMsg,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(14.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        items(sortedWidgets, key = { it.id }) { item ->
+                            val siblings = byPosition[item.position].orEmpty()
+                            val idxInPos = siblings.indexOfFirst { it.id == item.id }
+                            val canMoveUp = idxInPos > 0
+                            val canMoveDown = idxInPos in 0 until siblings.lastIndex
+
+                            ElevatedCard(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                StatusBadge(
+                                                    text = "Pos #${item.position}",
+                                                    tone = BadgeTone.INFO
+                                                )
+                                                StatusBadge(
+                                                    text = "#${item.orders}",
+                                                    tone = BadgeTone.NEUTRAL
+                                                )
+                                                StatusBadge(
+                                                    text = if (item.enabled) strings.active else "OFF",
+                                                    tone = if (item.enabled) BadgeTone.SUCCESS else BadgeTone.WARNING
+                                                )
+                                            }
+                                            Text(
+                                                text = item.title,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = item.widget,
+                                                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        Switch(
+                                            checked = item.enabled,
+                                            onCheckedChange = { onToggleWidget(item) }
+                                        )
+                                    }
+
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            IconButton(
+                                                onClick = { onMoveWidget(item, true) },
+                                                enabled = canMoveUp,
+                                                modifier = Modifier.size(34.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.ArrowUpward,
+                                                    contentDescription = "Up",
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = { onMoveWidget(item, false) },
+                                                enabled = canMoveDown,
+                                                modifier = Modifier.size(34.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.ArrowDownward,
+                                                    contentDescription = "Down",
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
+                                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            IconButton(
+                                                onClick = { onEditWidget(item) },
+                                                modifier = Modifier.size(34.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.Edit,
+                                                    contentDescription = strings.edit,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = { onDeleteWidget(item) },
+                                                modifier = Modifier.size(34.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.Delete,
+                                                    contentDescription = strings.delete,
+                                                    tint = MaterialTheme.colorScheme.error,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FullScreenWidgetForm(
+    form: DashboardWidgetFormState,
+    availableWidgets: List<AvailableWidgetOption>,
+    availableRoles: List<String>,
+    labels: OperationsLabels,
+    onUpdate: ((DashboardWidgetFormState) -> DashboardWidgetFormState) -> Unit,
+    onSubmit: () -> Unit,
+    onClose: () -> Unit
+) {
+    val strings = LocalAppStrings.current
+    var moduleExpanded by remember { mutableStateOf(false) }
+
+    AppScreenScaffold(
+        title = if (form.isEdit) labels.editWidgetTitle else labels.addWidgetBtn,
+        subtitle = form.user,
+        onBack = onClose,
+        bottomBar = {
+            Surface(tonalElevation = 4.dp, shadowElevation = 8.dp) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(onClick = onClose, modifier = Modifier.weight(1f)) { Text(strings.cancel) }
+                    Button(
+                        onClick = onSubmit,
+                        enabled = !form.isSaving && form.title.isNotBlank() && form.widget.isNotBlank(),
+                        modifier = Modifier.weight(1.5f)
+                    ) {
+                        if (form.isSaving) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        } else {
+                            Text(strings.save)
+                        }
+                    }
+                }
+            }
+        }
+    ) { pad ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(pad)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            AnimatedVisibility(visible = !form.error.isNullOrBlank()) {
+                Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(10.dp)) {
+                    Text(form.error.orEmpty(), color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(12.dp))
+                }
+            }
+
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(availableRoles) { role ->
+                    FilterChip(
+                        selected = form.user.equals(role, ignoreCase = true),
+                        onClick = { onUpdate { it.copy(user = role) } },
+                        label = { Text(role) }
+                    )
+                }
+            }
+
+            OutlinedTextField(
+                value = form.title,
+                onValueChange = { v -> onUpdate { it.copy(title = v) } },
+                label = { Text(labels.widgetTitleLabel) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            ExposedDropdownMenuBox(
+                expanded = moduleExpanded,
+                onExpandedChange = { moduleExpanded = !moduleExpanded }
+            ) {
+                val matchedLabel = availableWidgets.find { it.key == form.widget }?.let { "${it.label} (${it.key})" }
+                    ?: form.widget
+                OutlinedTextField(
+                    value = matchedLabel,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text(labels.widgetModuleLabel) },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = moduleExpanded) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                ExposedDropdownMenu(
+                    expanded = moduleExpanded,
+                    onDismissRequest = { moduleExpanded = false }
+                ) {
+                    availableWidgets.forEach { opt ->
+                        DropdownMenuItem(
+                            text = {
+                                Column {
+                                    Text(opt.label, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        text = opt.key,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            },
+                            onClick = {
+                                onUpdate { cur ->
+                                    cur.copy(
+                                        widget = opt.key,
+                                        title = if (cur.title.isBlank()) opt.label else cur.title
+                                    )
+                                }
+                                moduleExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = form.position,
+                    onValueChange = { v -> onUpdate { it.copy(position = v.filter { c -> c.isDigit() }) } },
+                    label = { Text(labels.widgetPositionLabel) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                OutlinedTextField(
+                    value = form.orders,
+                    onValueChange = { v -> onUpdate { it.copy(orders = v.filter { c -> c.isDigit() }) } },
+                    label = { Text(labels.widgetOrderLabel) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(labels.widgetEnabledLabel, style = MaterialTheme.typography.bodyLarge)
+                Switch(
+                    checked = form.enabled,
+                    onCheckedChange = { c -> onUpdate { it.copy(enabled = c) } }
+                )
+            }
+
+            OutlinedTextField(
+                value = form.content,
+                onValueChange = { v -> onUpdate { it.copy(content = v) } },
+                label = { Text(labels.widgetContentLabel) },
+                textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                minLines = 4,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            )
         }
     }
 }
