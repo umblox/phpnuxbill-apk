@@ -1356,7 +1356,7 @@ private fun RoutersAndPoolsTabContent(
                                             )
                                             StatusBadge(
                                                 text = "${odp.portAmount} Port",
-                                                tone = BadgeTone.INFO
+                                                tone = BadgeTone.NEUTRAL
                                             )
                                         }
                                         Text(
