@@ -974,7 +974,7 @@ private fun WidgetsTabContent(
                                             ) {
                                                 StatusBadge(
                                                     text = "Pos #${item.position}",
-                                                    tone = BadgeTone.INFO
+                                                    tone = BadgeTone.NEUTRAL
                                                 )
                                                 StatusBadge(
                                                     text = "#${item.orders}",
