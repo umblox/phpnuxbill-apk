@@ -527,28 +527,29 @@ class NetworkGenieAcsViewModel(
     fun submitPortPoolForm() {
         val form = _portPoolForm.value
         if (form.isSaving) return
-        val isEn = sessionStorage.getCurrentSession().languageCode == "en"
         val cleanName = form.portName.trim()
-        if (cleanName.length !in 3..30) {
-            _portPoolForm.update {
-                it.copy(
-                    error = if (isEn) "Port pool name must be between 3 and 30 characters."
-                    else "Nama Port Pool harus 3 sampai 30 karakter."
-                )
-            }
-            return
-        }
-        if (form.rangePort.isBlank() || form.routers.isBlank()) {
-            _portPoolForm.update {
-                it.copy(
-                    error = if (isEn) "Port range and router are required."
-                    else "Rentang Port dan Router wajib diisi."
-                )
-            }
-            return
-        }
 
         viewModelScope.launch {
+            val isEn = sessionStorage.getCurrentSession().languageCode == "en"
+            if (cleanName.length !in 3..30) {
+                _portPoolForm.update {
+                    it.copy(
+                        error = if (isEn) "Port pool name must be between 3 and 30 characters."
+                        else "Nama Port Pool harus 3 sampai 30 karakter."
+                    )
+                }
+                return@launch
+            }
+            if (form.rangePort.isBlank() || form.routers.isBlank()) {
+                _portPoolForm.update {
+                    it.copy(
+                        error = if (isEn) "Port range and router are required."
+                        else "Rentang Port dan Router wajib diisi."
+                    )
+                }
+                return@launch
+            }
+
             _portPoolForm.update { it.copy(isSaving = true, error = null) }
             when (val res = repository.savePortPool(form)) {
                 is ApiResult.Success -> {
@@ -611,19 +612,20 @@ class NetworkGenieAcsViewModel(
     fun submitOdpForm() {
         val form = _odpForm.value
         if (form.isSaving) return
-        val isEn = sessionStorage.getCurrentSession().languageCode == "en"
         val cleanName = form.name.trim()
-        if (cleanName.length !in 5..15) {
-            _odpForm.update {
-                it.copy(
-                    error = if (isEn) "ODP name must be between 5 and 15 characters."
-                    else "Nama ODP harus 5 sampai 15 karakter."
-                )
-            }
-            return
-        }
 
         viewModelScope.launch {
+            val isEn = sessionStorage.getCurrentSession().languageCode == "en"
+            if (cleanName.length !in 5..15) {
+                _odpForm.update {
+                    it.copy(
+                        error = if (isEn) "ODP name must be between 5 and 15 characters."
+                        else "Nama ODP harus 5 sampai 15 karakter."
+                    )
+                }
+                return@launch
+            }
+
             _odpForm.update { it.copy(isSaving = true, error = null) }
             when (val res = repository.saveOdp(form)) {
                 is ApiResult.Success -> {
